@@ -358,6 +358,7 @@ static void app_line_changer(ASTHD **p_ast, void *arg) {
 
         iapp = (AST_InlineApp *)root;
         ret = ast_xexpr_single(iapp->scope, iapp->args, NULL);
+        ret->loc = root->loc;
         ast_shallow_remove(root);
         *p_ast = ret;
     }
