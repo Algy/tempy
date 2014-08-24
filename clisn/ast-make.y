@@ -318,6 +318,11 @@ factor_expr(A) ::= MINUS(tokOP) factor_expr(B).{
     TRACK_TN(A, tokOP, B);
     RM_TOKEN(tokOP);
 }
+factor_expr(A) ::= BANG(tokOP) factor_expr(B).{ 
+    A = ast_unop(tokOP->text, B); 
+    TRACK_TN(A, tokOP, B);
+    RM_TOKEN(tokOP);
+}
 
 power_expr(A) ::= par_expr(B). { 
     A = B;

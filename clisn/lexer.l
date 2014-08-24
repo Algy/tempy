@@ -196,6 +196,7 @@ digit [0-9]
 "\*\*"  {TRACK_COL(); return DSTAR;}
 "/" {TRACK_COL(); return SLASH;}
 "%" {TRACK_COL(); return PERCENT;}
+"!" {TRACK_COL(); return BANG;}
 
 "&" {TRACK_COL(); return AMP;}
 "\|" {TRACK_COL(); return PIPE;}
