@@ -51,8 +51,8 @@ static PyObject* dictify_locinfo(ASTHD *ast) {
  * -- when trialer_type is "array"
  * index_param: lisn
  * -- when trailer_type is "slice" --
- *  slice_left: lisn | None 
- *  slice_right: lisn | None
+ *  left_slice: lisn | None 
+ *  right_slice: lisn | None
  *  
  */
 static PyObject* dictify_trailer(ASTHD *ast) {
@@ -123,8 +123,8 @@ static PyObject* dictify_trailer(ASTHD *ast) {
                     Py_INCREF(Py_None);
                     right = Py_None;
                 }
-                PyDict_SetItemString(ret, "slice_left", left);
-                PyDict_SetItemString(ret, "slice_right", right);
+                PyDict_SetItemString(ret, "left_slice", left);
+                PyDict_SetItemString(ret, "right_slice", right);
                 Py_XDECREF(left);
                 Py_XDECREF(right);
             }
