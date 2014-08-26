@@ -1,0 +1,2 @@
+class BaseRuntimeError(Exception):
+    pass
