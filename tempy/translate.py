@@ -1,6 +1,7 @@
 from lisn import loads, loads_file
 from lisn.utils import LISNVisitor
 from functools import wraps
+from copy import copy
 
 
 '''
@@ -119,13 +120,13 @@ class PyIfStmt(PyStmt):
         '''
         Arguments - 
             if_pair: (expr, stmt list)
-            elif_pair: None | (expr, stmt list) list
+            elif_pairs: None | (expr, stmt list) list
             else_stmt_list: None | stmt list
         '''
 
         self.if_pair = if_pair
-        self.elif_pairs = elif_pairs
-        self.else_stmt_list = else_stmt_list
+        self.elif_pairs = elif_pairs or []
+        self.else_stmt_list = else_stmt_list or []
 
     def to_string(self, indent, acc_indent):
         if_expr, if_stmt_list = self.if_pair
@@ -134,7 +135,7 @@ class PyIfStmt(PyStmt):
                                 stmt_list_to_string(if_stmt_list,
                                                     indent,
                                                     acc_indent))
-        if self.elif_pairs is not None:
+        if self.elif_pairs:
             def elif_chunk(elif_expr, elif_expr_stmt_list):
                 res = "elif %s:\n%s"%(elif_expr.to_string(),
                                       stmt_list_to_string(elif_expr_stmt_list,
@@ -143,7 +144,7 @@ class PyIfStmt(PyStmt):
                 return res
             acc_str += "".join([elif_chunk(l, r) for l, r in self.elif_pairs])
         
-        if self.else_stmt_list is not None:
+        if self.else_stmt_list:
             acc_str += "else:\n%s"%stmt_list_to_string(self.else_stmt_list,
                                                        indent,
                                                        acc_indent)
@@ -542,7 +543,7 @@ ID Hint
 ID Hint Object
 --
  * Original Name
- * source: "local" | "argument" | "function" | "closure" | "let"
+ * source: "local" | "argument" | "function" | "let"
  * 'let' Duplication Depth
  * usage: string set
     "return"
@@ -885,6 +886,9 @@ class Premise:
     def __init__(self, use_return_value=False):
         self.use_return_value = use_return_value
 
+    def copy(self):
+        return copy(self)
+
 
 class Conclusion:
     def __init__(self, preseq_stmts, result_expr, error=False, comment=None):
@@ -901,6 +905,7 @@ class Conclusion:
 
     def is_pure_expr(self):
         return len(self.preseq_stmts) == 0
+
 
 
 def expr_conclusion(expr, comment=None):
@@ -989,13 +994,25 @@ def xtranslate_node_list(translator, node_list, comp_env, premise, config, conte
         return noreturn_conclusion(concls)
 
 
-def integrate_conclusion(result_proc, *conclusions):
+def integrate_conclusion(result_proc, *conclusions, allow_None=False):
     '''
-    result_proc: PyExpr x PyExpr x .. -> PyExpr
+    result_proc: (PyExpr | PyExpr list) x (PyExpr | PyExpr list) x .. -> PyExpr
     '''
-    if any([lambda x: x.error_occured() for x in conclusions]):
-        return error_conclusion()
+# XXX
     pre_stmts = []
+    for concl_or_concls in conclusions:
+        if isinstance(concl_or_concls, (list, tuple,)):
+            assert all([concl.has_result() for concl in concl_or_concls])
+            if any([lambda x: x.error_occured() for x in concl_or_concls]):
+                return error_conclusion()
+            for concl in concl_or_concls:
+                
+
+        else:
+            assert concl_or_concls.has_result()
+            if concl_or_concls.error_occured():
+                return error_conclusion()
+
     for concl in conclusions:
         assert concl.has_result()
         pre_stmts += concl.preseq_stmts
@@ -1005,14 +1022,12 @@ def integrate_conclusion(result_proc, *conclusions):
     return stmt_result_conclusion(pre_stmts, result_expr)
 
 
-
 class Context:
     def __init__(self, runtime_obj_id, importer_id, line_info_id, max_error_cnt):
         self.runtime_obj_id = runtime_obj_id
         self.importer_id = importer_id
         self.line_info_id = line_info_id
         self.max_error_cnt = max_error_cnt
-
         self.errors = []
 
     def add_error(self, error_obj):
@@ -1030,15 +1045,15 @@ def set_comp_error(context, error_obj):
     context.add_error(error_obj)
 
 
-def stmtify_expr(comp_env, expr, use_return_value=True):
+
+def stmtify_expr(expr, use_return_value, imd_id):
     '''
     CompEnv x PyExpr x bool -> stmt list
     '''
     if use_return_value:
-        imd_id = comp_env.issue_local_immediate()
-        return ([PyAssignmentToName(PyMetaID(imd_id), expr)], imd_id)
+        return [PyAssignmentToName(PyMetaID(imd_id), expr)]
     else:
-        return ([PyExprStmt(expr)], None)
+        return [PyExprStmt(expr)]
 
 def basic_emitter(fun):
     @wraps(fun)
@@ -1159,34 +1174,44 @@ def python_control_literal(name):
         return PyBreak()
     elif name == "continue":
         return PyContinue()
-    elif name == "pass":
-        return PyPass()
     else:
         return None
-
-
 
 @node_translator.add.name
 def nt_name(translator, lisn, comp_env, premise, config, context):
     name = lisn["name"]
+    use_return_value = premise.use_return_value
+
+    def set_noreturn_error(name):
+        set_comp_error(context, CompErrorObject("NoReturnValue",
+                                                "'%s' cannot have return value" % name,
+                                                "<source>",
+                                                lisn["locinfo"]))
+
     
     naitve_literal = python_native_literal(name)
     if native_literal is not None:
         return expr_conclusion(native_literal)
 
+    if name == "pass":
+        if use_result_value:
+            return stmt_result_conclusion([PyPass()], PyLiteral(None))
+        else:
+            return stmt_conclusion([PyPass()])
+
     control_stmt = python_control_name(name)
     if control_stmt is not None:
-        if premise.use_return_value:
-            set_comp_error(context, CompErrorObject("NoReturnValue",
-                                                    "Control statement don't have return value",
-                                                    "<source>",
-                                                    lisn["locinfo"]))
+        if use_return_value:
+            set_noreturn_error(name)
             return error_conclusion()
         else:
             return stmt_conclusion([control_stmt])
 
-
-    name_id, info = comp_env.lookup_name(name)
+    if not hasattr(lisn, "meta_id"):
+        name_id, info = comp_env.lookup_name(name)
+    else:
+        name_id = lisn["meta_id"]
+        info = comp_env.get_id_info(name_id)
 
     if info.is_var() or info.is_global_scope_var():
         return expr_conclusion(PyMetaID(name_id))
@@ -1265,10 +1290,6 @@ def ensure_local_var_name(comp_env, name):
     return ensure_local_name(comp_env, name, IDHint(name, "local", "local"))
 
 
-def ensure_closure_name(comp_env, name):
-    return ensure_local_name(comp_env, name, IDHint(name, "closure", "local"))
-
-
 def ensure_function_name(comp_env, name):
     return ensure_local_name(comp_env, name, IDHint(name, "function", "local"))
 
@@ -1330,14 +1351,16 @@ def nt_assign(translator, lisn, comp_env, premise, config, context):
 def suite_to_node_list(suite):
     return [obj["param"] for node in suite["exprs"]]
 
+@node_translator.add.suite
+def nt_suite(translator, lisn, comp_env, premise, config, context):
+    return translate_suite(translator, lisn, comp_env, premise, config, context)
 
 @node_translator.add.xexpr
 def nt_xexpr(translator, lisn, comp_env, premise, config, context):
     # 1. check if multi name is def, import, import_from
-    # 2. check whther name is not or special condition directives(if, elif, else)
-    #    these names are already processed in the lookahead fashon  by suite translator
-    # 3. lookahead name part to check if name is expander/converter
-    # 4. lastly treat label as just function
+    # 2. lookahead name part to check if name is expander/converter
+    # 3. lastly treat label as just function
+
     if lisn["multi_flag"]:
         head_name = lisn["head_name"]
         if head_name == "def":
@@ -1347,24 +1370,249 @@ def nt_xexpr(translator, lisn, comp_env, premise, config, context):
         elif head_name == "import_from":
             return translate_import_from(translator, lisn, Premise(False), config, context)
         else:
-            return translate
-
+            set_comp_error(context,
+                           CompErrorObject(
+                               "UnknownHeadLabel",
+                               "Unknown head label: %s"%head_name,
+                               "<source>",
+                               lisn["locinfo"]))
+            return error_conclusion()
     else:
+        head_expr = lisn["head_expr"]
+        head_expr_name = force_name(head_expr)
+        args = lisn["args"]
+        success = True
+
+        if lisn["vert_suite"]["exprs"]:
+            set_comp_error(context,
+                           CompErrorContext(
+                               "IllegalCall",
+                               "Vertical Arguments should not be applied to function",
+                               "<source>",
+                               lisn["vert_suite"]["locinfo"]))
+            success = False
+
+        # lookahead
+        if head_expr_name is not None and \
+            comp_env.has_name(head_expr_name):
+            _, info = comp_env.lookup_name(head_expr_name)
+            if info.is_expander():
+                return translator(info.expand(lisn,
+                                              comp_env,
+                                              premise,
+                                              config,
+                                              context),
+                                  comp_env,
+                                  premise,
+                                  config,
+                                  context)
+            elif info.is_converter():
+                return info.convert(lisn, comp_env, premise, config, context)
+
+        applicant_concl = translator(head_expr, Premise(True), config, context)
+        sarg_concls = [translator(sarg, comp_env, Premise(True), config, context) for sarg in args.sargs]
+        karg_keywords = [k for k, _ in args.kargs]
+        karg_concls = [karg for karg in args.kargs]
+        star_concl = if args.star else None
+        dstar_concl = if args.dstar else None
+
+
+        if not success:
+            return error_conclusion()
+
+        return integrate_conclusion(lambda callee_expr, sarg_exprs, karg_exprs: PyCall(callee_expr,  ) ,
+                                    applicant_concl,
+                                    sarg_concls,
+                                    karg_concls,
+                                    )
+                                    
 
 
 
 
-def translate_suite(translate, suite, comp_env, premise, config, context, top_level=True):
-    # if:
-    # {elif:}*
-    # {else:}?
+        #
 
-    state = "fun"
+class Promise:
+    '''
+    Lazy Class
+    Not to be confused with Premise class!
+    This class is for lazy evaluation, while Premise is used for translation
+
+    '''
+    def __init__(self, fun, args=(), kwds={}):
+        self.fun = fun
+        self.args = args
+        self.kwds = kwds
+
+    def __call__(self):
+        return self.force()
+    def force(self):
+        return fun(*self.args, **self.kwds)
+
+
+def delay(*app_args, **app_kwds):
+    @wraps(delay)
+    def decorator(fun):
+        return Promise(fun, app_args, app_kwds)
+    return decorator
+
+def is_delayed(obj):
+    return isinstance(obj, Promise)
+
+
+def force_one_sarg(xexpr):
+    '''
+    Returns -
+        (
+    '''
+    args = xexpr["args"]
+    if args["kargs"] or \
+       args["has_star"] or \
+       args["has_dstar"] or \
+       args["has_amp"]  or \
+       args["has_damp"]:
+        return None
+    else:
+        sargs = args["sargs"]
+        if len(sargs) == 1:
+            return sargs[0]
+        else:
+            return None
+
+def translate_branch(translator, lisn, comp_env, premise, config, context):
+    use_return_value = premise.use_return_value
+    if use_return_value:
+        result_id = comp_env.issue_local_immediate()
+    else:
+        result_id = None
+    def conclusion_to_stmts(concl):
+        if use_return_value:
+            return concl.preseq_stmts + \
+                stmtify_expr(concl.result_expr,
+                    True,
+                    result_id)
+        else:
+            return concl.preseq_stmts + \
+                   stmtify_expr(concl.result_expr, False, None)
+    def set_branch_error(lisn, msg):
+        set_comp_error(context,
+                       CompErrorObject("Branch",
+                                       msg,
+                                       "<source>",
+                                       lisn["locinfo"]))
+
+    def expand_special_branch(if_cond_concl, if_suite_concl,
+                              elif_cond_concls, elif_suite_concls,
+                              else_suite_concl=None):
+        assert len(elif_cond_concls) == len(elif_suite_concls)
+
+        result_stmts = if_cond_concl.preseq_stmts[:]
+        if_stmt = PyIfStmt((if_cond_concl.result_expr,
+                            conclusion_to_stmts(if_suite_concl)))
+        iter_if_stmt = if_stmt
+
+        for elif_cond_concl, elif_suite_concl in \
+                zip(elif_cond_concls, elif_suite_concls):
+
+            if elif_cond_concl.is_pure_expr():
+                iter_if_stmt.elif_pairs.append(
+                    (elif_cond_concl.result_expr, 
+                     conclusion_to_stmts(elif_suite_concl)))
+            else:
+                cond_id = comp_env.issue_local_immediate()
+                iter_if_stmt.else_stmt_list += elif_cond_concl.preseq_stmts
+                nested_if_stmt = PyIfStmt((
+                    elif_cond_concl.result_expr,
+                    conclusion_to_stmts(elif_suite_concl))
+                iter_if_stmt = nested_if_stmt
+
+        if else_suite_concl is not None:
+            iter_if_stmt.else_stmt_list = conclusion_to_stmts(else_suite_concl)
+        result_stmts.append(if_stmt)
+
+        if use_return_value:
+            return stmt_result_conclusion(result_stmts,
+                                          PyMetaID(result_id))
+        else:
+            return stmt_conclusion(result_stmts)
+
+    args = lisn["args"]
+    '''
+    if args["has_star"] or \
+       args["has_dstar"] or \
+       args["has_amp"] or \
+       args["has_damp"]:
+        pass
+    '''
+
+def check_multi_xexpr(node, head_name=None):
+    return node["type"] == "xexpr" and \
+           node["multi_flag"] and \
+           (head_name is None or
+            node["head_name"] == head_name)
+
+def force_name_to_head_expr(node):
+    if not check_multi_xexpr(node):
+        return None
+    return force_name(node["head_expr"])
+
+
+def is_def_node(node):
+    return check_multi_xexpr(node, "def")
+
+
+def translate_suite(translator, suite, comp_env, premise, config, context):
+    use_return_value = premise.use_return_value
+    success = True
+    concls = []
+    node_list = suite_to_node_list(suite)
+    if node_list:
+        last_node = node_list[-1]
+        for node in suite_to_node_list(suite):
+            child_premise = Premise(use_return_value and node is last_node)
+            if is_def_node(node):
+                def_name = force_name_to_head_expr(node)
+                if def_name is None:
+                    set_comp_error(context,
+                                   CompErrorObject("DefName",
+                                                   "Name of def node is not appropriate",
+                                                   "<source>",
+                                                   lisn["head_expr"]["locinfo"]))
+                    success = False
+                else:
+                    function_id = ensure_function_name(comp_env, def_name)
+                    child_premise.prebound_id = function_id # HACK?
+
+                    @lazy(node, child_premise)
+                    def translation_promise(node, child_premise):
+                        return translator(node, comp_env, child_premise, config, context)
+                    concls.append(translation_promise)
+            else:
+                concls.append(translator(node, comp_env, child_premise, config, context))
+        
+        for idx in range(len(concls)):
+            concl = concls[idx]
+            if is_delayed(concl):
+                concls[idx] = concl.force()
+        
+        if not success:
+            return error_conclusion()
+
+        if use_return_value:
+            return seq_conclusion(concls)
+        else:
+            return noreturn_conclusion(concls)
+    else:
+        # empty suite
+        if use_return_value:
+            return expr_conclusion(PyLiteral(None))
+        else:
+            return stmt_conclusion(PyPass())
 
 
 
-def translate_def_node(translator, lisn, comp_env, premise, config, context, prebound_id=None):
-    assert lisn.get("head_name") == "def"
+def translate_def_node(translator, lisn, comp_env, premise, config, context):
+    assert is_def_node(lisn)
 
     def gather_formal_info():
         arg_info = lisn["args"]
@@ -1459,20 +1707,15 @@ def translate_def_node(translator, lisn, comp_env, premise, config, context, pre
 
         return (success, preseq_stmts, default_pairs)
 
-    def process_suite(def_xexpr, def_name, sarg_strs, default_pairs, star_str, dstar_str):
+    def make_defun(def_xexpr, def_name, sarg_strs, default_pairs, star_str, dstar_str):
         '''
         Return - 
             PyDefun
         '''
         if def_xexpr["vert_flag"]:
             def_stmts = []
-            nodes = suite_to_node_list(def_xexpr["vert_suite"])
-            concl = xtranslate_node_list(translator,
-                                         nodes,
-                                         comp_env,
-                                         Premise(True),
-                                         config,
-                                         context)
+            suite = def_xexpr["vert_suite"]
+            concl = translator(suite, comp_env, Premise(True), config, context)
             def_stmts = concl.preseq_stmts
             def_stmts.append(PyReturn(concl.result_expr))
         else:
@@ -1490,14 +1733,34 @@ def translate_def_node(translator, lisn, comp_env, premise, config, context, pre
     def_name, sarg_strs, kwd_pairs, star_str, dstar_str = formal_info
     default_value_test_success, preseq_stmts, default_pairs = process_kwd_pairs()
 
+    prebound_id = premise.prebound_id if hasattr(premise, "prebound_id") else None
     if prebound_id is None:
-        function_id = ensure_closure_name(comp_env, def_name) # function name
+        function_id = ensure_function_name(comp_env, def_name) # function name
     else:
         assert comp_env.has_local_name(def_name, recursive=False)
         _id, info = comp_env.lookup_name(def_name)
         assert _id == prebound_id
         assert info.is_var()
         function_id = prebound_id # name is already bound to 
+
+    # formal arguments duplication check
+    name_set = set([])
+    no_duplication_found = True
+    for name in sargs_strs + \
+                [k for k, _ in kwd_pairs] + \
+                (star_str or []) + \
+                (dstar_str or []):
+        if name not in name_set:
+            name_set.add(name)
+        else:
+            no_duplication_found = False
+            set_comp_error(context,
+                           CompErrorObject("FormalArgument",
+                               "Duplicated name of formal argument: %s"%name,
+                               "<source>",
+                               lisn["locinfo"]))
+    if not no_duplication_found:
+        return error_conclusion()
 
     ## NEW ENV
     comp_env.setup_local_frame("def") 
@@ -1511,8 +1774,7 @@ def translate_def_node(translator, lisn, comp_env, premise, config, context, pre
         ensure_local_var_name(star_str)
     if dstar_str:
         ensure_local_var_name(dstar_str)
-    # make defun
-    defun = process_suite(lisn, def_name, sarg_strs, default_pairs, star_str, dstar_str)
+    defun = make_defun(lisn, def_name, sarg_strs, default_pairs, star_str, dstar_str)
 
     ## DEL ENV
     comp_env.contract_local_frame() 
