@@ -1,3 +1,4 @@
+from tag import HTML_TAGS
 from lisn import loads, loads_file
 from lisn.utils import LISNVisitor
 from functools import wraps
@@ -959,8 +960,8 @@ class GlobalScopeVar(IDInfo):
 
 
 class RuntimeExtern(IDInfo):
-    def __init__(self, runtime_obj_name):
-        self.runtime_obj_name = runtime_obj_name
+    def __init__(self, name):
+        self.name = name
 
 
 class Expander(IDInfo):
@@ -2281,8 +2282,8 @@ def translate_import(translator, lisn, comp_env, premise, config, context):
         return error_conclusion()
     else:
         last_name = names[-1]
-        accessor = PyMetaID(context.import_id)
-        for name in names[::-1]:
+        accessor = PyMetaID(context.importer_id)
+        for name in names:
             accessor = PyAttrAccess(accessor, name)
         module_id = ensure_local_var_name(comp_env, last_name)
 
@@ -2303,14 +2304,14 @@ def translate_import_from(translator, lisn, comp_env, premise, config, context):
         success = True
         result = []
         for obj in suite["exprs"]:
-            if suite["param"]["type"] != "name":
+            if obj["param"]["type"] != "name":
                 set_comp_error(context,
                                CompErrorObject("IllegalImportName",
                                                "Invalid import name",
                                                "<source>", suite["param"]["locinfo"]))
                 success = False
                 continue
-            dest_name = suite["param"]["name"]
+            dest_name = obj["param"]["name"]
             if obj["is_arrow"]:
                 source_name =  obj["arrow_lstring"]
                 result.append((source_name, dest_name))
@@ -2333,8 +2334,8 @@ def translate_import_from(translator, lisn, comp_env, premise, config, context):
         return error_conclusion()
     else:
         last_name = module_names[-1]
-        accessor = PyMetaID(context.import_id)
-        for name in module_names[::-1]:
+        accessor = PyMetaID(context.importer_id)
+        for name in module_names:
             accessor = PyAttrAccess(accessor, name)
         module_id = comp_env.issue_local_immediate()
 
@@ -2373,7 +2374,11 @@ def setup_base_syntax(comp_env):
 
     comp_env.add_global("seq",
                         Converter(translate_seq,
-                                  "let"))
+                                  "seq"))
+
+def setup_html_runtime(comp_env):
+# TODO
+    pass
                         
 
 
