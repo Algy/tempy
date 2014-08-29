@@ -229,11 +229,31 @@ def check_lisn_format(context, lisn, checker):
     '''
 
 '''
-Python AST Classes
+MetaID conversion rule
+--
+local | argument | function | lambda | immediate
+
+use convert-env (dict)
+
+1. preserve name of all global-scope variables
+2. preserve function name: (original), (original)_f#
+3. preserve local name: (original), (original)_#
+4. preserve argument name: (original), (original)_arg_#
+5. name immediate locals: _imd_#
+'''
+
+
+
+
+'''
+Python AST Classes & Meta ID Conversion tools
 '''
 
 class PyStmt:
     def to_string(self, indent, acc_indent):
+        raise NotImplementedError
+
+    def convert_meta_id(self, driver, local_dict):
         raise NotImplementedError
 
 
@@ -250,6 +270,9 @@ class PyMetaComment(PyStmt):
         else:
             return " "*acc_indent + "# " + self.cmt_str + "\n"
 
+    def convert_meta_id(self, driver, local_dict):
+        pass
+
 def stmt_list_to_string(stmt_list, indent, acc_indent):
     return "".join([stmt.to_string(indent, acc_indent+indent)
                     for stmt in stmt_list])
@@ -259,7 +282,7 @@ class PyDefun(PyStmt):
     def __init__(self, fun_name, args, kwd_args, stmt_list, star=None, dstar=None, docstring=""):
         '''
         Argument -
-            kwd_args: (string, PyExpr) list
+            kwd_args: (string | PyMetaID, PyExpr) list
 
         '''
         self.fun_name = fun_name # string or PyMetaID
@@ -269,6 +292,25 @@ class PyDefun(PyStmt):
         self.dstar = dstar
         self.docstring = docstring
         self.stmt_list = stmt_list
+
+    def convert_meta_id(self, driver, local_dict):
+        local_dict = {}
+        if isinstance(self.fun_name, PyMetaID):
+            self.fun_name = self.fun_name.convert_meta_id(driver, local_dict).name
+        self.args = [(pos_arg.convert_meta_id(driver, local_dict).name
+                        if isinstance(pos_arg, PyMetaID)
+                        else pos_arg)
+                     for pos_arg in self.args]
+        self.kwd_args = [(keyword.convert_meta_id(driver, local_dict).name
+                            if isinstance(keyword, PyMetaID)
+                            else keyword,
+                          kexpr.convert_meta_id(driver, local_dict))
+                         for keyword, kexpr in self.kwd_args]
+        if self.star:
+            self.star = self.star.convert_meta_id(driver, local_dict)
+        if self.dstar:
+            self.dstar = self.dstar.convert_meta_id(driver, local_dict)
+        meta_convert_stmt_list(self.stmt_list, driver, local_dict)
 
     def to_string(self, indent, acc_indent):
         arglst = []
@@ -301,6 +343,7 @@ class PyDefun(PyStmt):
                        ", ".join(arglst),
                        stmt_list_to_string(self.stmt_list, indent, acc_indent))
 
+
 class PyReturn(PyStmt):
     def __init__(self, ret_expr=None):
         self.ret_expr = ret_expr
@@ -313,17 +356,36 @@ class PyReturn(PyStmt):
 
         return " "*acc_indent + "return %s\n"%ret_expr_str
 
+    def convert_meta_id(self, driver, local_dict):
+        if self.ret_expr is not None:
+            self.ret_expr = self.ret_expr.convert_meta_id(driver, local_dict)
+
+
 class PyBreak(PyStmt):
     def to_string(self, indent, acc_indent):
         return " "*acc_indent + "break\n"
+
+    def convert_meta_id(self, driver, local_dict):
+        pass
 
 class PyContinue(PyStmt):
     def to_string(self, indent, acc_indent):
         return " "*acc_indent + "continue\n"
 
+    def convert_meta_id(self, driver, local_dict):
+        pass
+
 class PyPass(PyStmt):
     def to_string(self, indent, acc_indent):
         return " "*acc_indent + "pass\n"
+
+    def convert_meta_id(self, driver, local_dict):
+        pass
+
+
+def meta_convert_stmt_list(stmt_list, driver, local_dict):
+    for stmt in stmt_list:
+        stmt.convert_meta_id(driver, local_dict)
 
 
 class PyForStmt(PyStmt):
@@ -339,6 +401,12 @@ class PyForStmt(PyStmt):
                          self._in.to_string(),
                          stmt_list_to_string(self.stmt_list, indent, acc_indent))
 
+    def convert_meta_id(self, driver, local_dict):
+        if isinstance(self.elem_name, PyMetaID):
+            self.elem_name = self.elem_name.convert_meta_id(driver, local_dict)
+        self._in = self._in.convert_meta_id(driver, local_dict)
+        meta_convert_stmt_list(self.stmt_list, driver, local_dict)
+
 
 class PyWhileStmt(PyStmt):
     def __init__(self, cond_expr, stmt_list):
@@ -353,18 +421,37 @@ class PyWhileStmt(PyStmt):
                                                     indent,
                                                     acc_indent))
 
+    def convert_meta_id(self, driver, local_dict):
+        self.cond_expr = self.cond_expr.convert_meta_id(driver, local_dict)
+        meta_convert_stmt_list(self.stmt_list, driver, local_dict)
+
+
 class PyIfStmt(PyStmt):
     def __init__(self, if_pair, elif_pairs=None, else_stmt_list=None):
         '''
         Arguments - 
             if_pair: (expr, stmt list)
-            elif_pairs: None | (expr, stmt list) list
-            else_stmt_list: None | stmt list
+            elif_pairs: (expr, stmt list) list
+            else_stmt_list: stmt list
         '''
 
         self.if_pair = if_pair
         self.elif_pairs = elif_pairs or []
         self.else_stmt_list = else_stmt_list or []
+
+    def convert_meta_id(self, driver, local_dict):
+        meta_convert_stmt_list(self.if_pair[1], driver, local_dict)
+        self.if_pair = (self.if_pair[0].convert_meta_id(driver, local_dict),
+                        self.if_pair[1])
+
+        new_elif_pairs = []
+        for elif_cond_expr, elif_stmt_list in self.elif_pairs:
+            meta_convert_stmt_list(elif_stmt_list, driver, local_dict)
+            new_elif_pairs.append((elif_cond_expr.convert_meta_id(driver,
+                                                                  local_dict),
+                                   elif_stmt_list))
+        self.elif_pairs = new_elif_pairs
+        meta_convert_stmt_list(self.else_stmt_list, driver, local_dict)
 
     def to_string(self, indent, acc_indent):
         if_expr, if_stmt_list = self.if_pair
@@ -399,6 +486,9 @@ class PyImportStmt(PyStmt):
     def to_string(self, indent, acc_indent):
         return " "*acc_indent + "import " + dotify(self.name_or_name_list)+ "\n"
 
+    def convert_meta_id(self, driver, local_dict):
+        pass
+
 class PyImportFromStmt(PyStmt):
     def __init__(self, name_or_name_list, import_names):
         self.name_or_name_list = name_or_name_list
@@ -408,6 +498,9 @@ class PyImportFromStmt(PyStmt):
         return " "*acc_indent + \
                "from " + dotify(self.name_or_name_list) + \
                "import " + ", ".join(self.import_names)
+
+    def convert_meta_id(self, driver, local_dict):
+        pass
 
 def PyAssignmentToName(name, expr):
     return PyAssignment(PyAssignment.ASSIGN_NAME, name, None, None, None, expr)
@@ -459,6 +552,24 @@ class PyAssignment(PyStmt):
         else:
             raise Exception("NOT REACHABLE")
 
+    def convert_meta_id(self, driver, local_dict):
+        if self._type == PyAssignment.ASSIGN_NAME:
+            if isinstance(self.name, PyMetaID):
+                self.name = self.name.convert_meta_id(driver, local_dict).name
+
+        elif self._type == PyAssignment.ASSIGN_ATTR:
+            self.scope_expr = self.scope_expr.convert_meta_id(driver,
+                                                              local_dict)
+        elif self._type == PyAssignment.ASSIGN_ITEM:
+            self.scope_expr = self.scope_expr.convert_meta_id(driver,
+                                                              local_dict)
+            self.item_expr = self.item_expr.convert_meta_id(driver,
+                                                            local_dict)
+        else:
+            raise Exception("NOT REACHABLE")
+
+        self.expr = self.expr.convert_meta_id(driver, local_dict)
+
 
 class PyExprStmt(PyStmt):
     def __init__(self, expr):
@@ -467,6 +578,10 @@ class PyExprStmt(PyStmt):
 
     def to_string(self, indent, acc_indent):
         return " "*acc_indent + self.expr.to_string() + "\n"
+
+    def convert_meta_id(self, driver, local_dict):
+        self.expr = self.expr.convert_meta_id(driver, local_dict)
+
 
 class PyExpr:
     def get_expr_pred(self):
@@ -493,6 +608,9 @@ class PyExpr:
         return True
 
     def to_string(self):
+        raise NotImplementedError
+
+    def convert_meta_id(self, driver, local_dict):
         raise NotImplementedError
 
 
@@ -585,6 +703,11 @@ class PyBinop(PyOperatorExpr):
                " " + self.op + " " + \
                expr_to_string(self.rhs, self)
 
+    def convert_meta_id(self, driver, local_dict):
+        return PyBinop(self.op,
+                       self.lhs.convert_meta_id(driver, local_dict),
+                       self.rhs.convert_meta_id(driver, local_dict))
+
 
 class PyUnop(PyOperatorExpr):
     '''
@@ -615,6 +738,10 @@ class PyUnop(PyOperatorExpr):
         return self.op + space + expr_to_string(self.param, self)
 
 
+    def convert_meta_id(self, driver, local_dict):
+        return PyUnop(self.op, self.param.convert_meta_id(driver, local_dict))
+
+
 class PyItemAccess(PyExpr):
     # @implement PyExpr
     def get_expr_pred(self):
@@ -631,6 +758,9 @@ class PyItemAccess(PyExpr):
         return "%s[%s]"%(expr_to_string(self.scope_expr, self),
                          self.item_expr.to_string())
 
+    def convert_meta_id(self, driver, local_dict):
+        return PyItemAccess(self.scope_expr.convert_meta_id(driver, local_dict),
+                            self.item_expr.convert_meta_id(driver, local_dict))
 
 class PyAttrAccess(PyExpr):
     # @implement PyExpr
@@ -648,6 +778,10 @@ class PyAttrAccess(PyExpr):
     def to_string(self):
         return "%s.%s"%(expr_to_string(self.scope_expr, self),
                         self.attr_name)
+
+    def convert_meta_id(self, driver, local_dict):
+        return PyAttrAccess(self.scope_expr.convert_meta_id(driver, local_dict),
+                            self.attr_name)
 
 class PyArraySlice(PyExpr):
     # @implement PyExpr
@@ -669,6 +803,15 @@ class PyArraySlice(PyExpr):
                             lslice_str,
                             rslice_str)
 
+    def convert_meta_id(self, driver, local_dict):
+        new_lslice = self.left_slice.convert_meta_id(driver, local_dict) \
+                        if self.left_slice else None
+        new_rslice = self.right_slice.convert_meta_id(driver, local_dict) \
+                        if self.right_slice else None
+        return PyArraySlice(self.scope_expr.convert_meta_id(driver, local_dict),
+                            new_lslice,
+                            new_rslice)
+
 class PyCall(PyExpr):
     # @implement PyExpr
     def get_expr_pred(self):
@@ -679,7 +822,7 @@ class PyCall(PyExpr):
         '''
         Arguments -
             arg_exprs: expr list
-            kw_exprs: (string, expr) list
+            kw_exprs: (string | PyMetaID, expr) list
         '''
         self.callee_expr = callee_expr
         self.arg_exprs = arg_exprs or []
@@ -687,8 +830,10 @@ class PyCall(PyExpr):
         self.star_expr = star_expr
         self.dstar_expr = dstar_expr
 
+
     def may_have_side_effect(self):
         return True
+
 
     def to_string(self):
         arglst = [x.to_string() for x in self.arg_exprs] + \
@@ -701,6 +846,26 @@ class PyCall(PyExpr):
 
         return "%s(%s)"%(expr_to_string(self.callee_expr, self),
                          ", ".join(arglst))
+
+    def convert_meta_id(self, driver, local_dict):
+        callee_expr = self.callee_expr.convert_meta_id(driver, local_dict)
+        arg_exprs = [pos_expr.convert_meta_id(driver, local_dict)
+                            for pos_expr in self.arg_exprs]
+        kw_exprs = [(keyword.convert_meta_id(driver, local_dict).name
+                       if isinstance(keyword, PyMetaID) else keyword,
+                     kexpr.convert_meta_id(driver, local_dict))
+                    for keyword, kexpr in self.kw_exprs]
+        star_expr = self.star_expr.convert_meta_id(driver, local_dict) \
+                      if self.star_expr else None
+        dstar_expr = self.dstar_expr.convert_meta_id(driver, local_dict) \
+                       if self.dstar_expr else None
+        return PyCall(callee_expr,
+                      arg_exprs,
+                      kw_exprs,
+                      star_expr,
+                      dstar_expr)
+
+
 
 class PyLiteral(PyExpr):
     # @implement PyExpr
@@ -719,6 +884,9 @@ class PyLiteral(PyExpr):
         # Funny!
         return repr(self.literal)
 
+    def convert_meta_id(self, driver, local_dict):
+        return self
+
 
 class PyMetaID(PyExpr):
     # @implement PyExpr
@@ -734,6 +902,10 @@ class PyMetaID(PyExpr):
     def to_string(self):
         return "__meta_id{0}__".format(self._id)
 
+    def convert_meta_id(self, driver, local_dict):
+        return PyName(driver(self._id, local_dict))
+
+
 class PyName(PyExpr):
     # @implement PyExpr
     def get_expr_pred(self):
@@ -747,6 +919,10 @@ class PyName(PyExpr):
         
     def to_string(self):
         return self.name
+
+    def convert_meta_id(self, driver, local_dict):
+        return self
+
 
 class PyLambda(PyExpr):
     def get_expr_pred(self):
@@ -766,7 +942,29 @@ class PyLambda(PyExpr):
         self.star = star
         self.dstar = dstar
         self.docstring = docstring
-        self.expr= expr 
+        self.expr = expr 
+
+    def convert_meta_id(self, driver, local_dict):
+        args = [(pos_arg.convert_meta_id(driver, local_dict).name
+                  if isinstance(pos_arg, PyMetaID)
+                  else pos_arg)
+                for pos_arg in self.args]
+        kwd_args = [(keyword.convert_meta_id(driver, local_dict).name
+                       if isinstance(keyword, PyMetaID) else keyword,
+                     kexpr.convert_meta_id(driver, local_dict))
+                    for keyword, kexpr in self.kwd_args]
+        expr = self.expr.convert_meta_id(driver, local_dict)
+        star = self.star.convert_meta_id(driver, local_dict) \
+                if self.star else None
+        dstar = self.dstar.convert_meta_id(driver, local_dict) \
+                if self.dstar else None
+
+        return PyLambda(args,
+                        kwd_args,
+                        expr,
+                        star,
+                        dstar,
+                        self.docstring)
 
     def to_string(self):
         arglst = [(pos_arg.to_string() if isinstance(pos_arg, PyMetaID) else pos_arg)
@@ -830,12 +1028,11 @@ ID Hint
 ID Hint Object
 --
  * Original Name
- * source: "local" | "argument" | "function" | "let" | "lambda"
+ * source: "local" | "argument" | "function" | "lambda" | "immediate"
  * 'let' Duplication Depth
  * usage: string set
     "return"
     "local"
-    "immediate"
 '''
 
 '''
@@ -904,17 +1101,16 @@ class CompErrorObject:
     
 
 class IDHint:
-    def __init__(self, original_name, name_source, usage, let_dup_depth=0):
+    def __init__(self, original_name, name_source, usage):
+        assert name_source in ["argument", "local", "immediate", "lambda", "function"]
         self.original_name = original_name
         self.name_source = name_source
         self.usage = usage
-        self.let_dup_depth = let_dup_depth
     
     def __repr__(self):
-        return "<%s (%s, %s, %d)>"%(self.original_name,
+        return "<%s (%s, %s)>"%(self.original_name,
                                     self.name_source,
-                                    self.usage,
-                                    self.let_dup_depth)
+                                    self.usage)
 
 class IDStorage:
     def __init__(self):
@@ -1088,7 +1284,7 @@ class CompEnv:
         ret = self.local_env
         self.local_env = self.local_env.prev
 
-    def get_id_hint_dict(self):
+    def get_hint_dict(self):
         '''
         Dict 
             (id -> string | IDHint)
@@ -2381,6 +2577,42 @@ def setup_html_runtime(comp_env):
     pass
                         
 
+_PYTHON_RESERVED_WORDS = set([
+    'and',
+    'del',
+    'from',
+    'not',
+    'while',
+    'as',
+    'elif',
+    'global',
+    'or',
+    'with',
+    'assert',
+    'else',
+    'if',
+    'pass',
+    'yield',
+    'break',
+    'except',
+    'import',
+    'print',
+    'class',
+    'exec',
+    'in',
+    'raise',
+    'continue',
+    'finally',
+    'is',
+    'return',
+    'def',
+    'for',
+    'lambda',
+    'try'])
+
+def is_python_reserved_word(name):
+    return name in _PYTHON_RESERVED_WORDS 
+
 
 def main_translate(suite, config=None):
     config = config or Config()
@@ -2444,12 +2676,48 @@ def main_translate(suite, config=None):
                                      None,
                                      kw_arguments)))
     comp_env.contract_local_frame()
-    def_mk_tmp = PyDefun("__make_template__",
+    def_mk_tmp = PyDefun("__tempy__",
                          [PyMetaID(context.runtime_obj_id),
                           PyMetaID(context.importer_id),
                           PyMetaID(context.line_info_id)],
                          None,
                          def_stmts)
+
+    hint_dict = comp_env.get_hint_dict()
+    def naive_renaming_driver(_id, local_dict):
+        id_hint = hint_dict[_id]
+        if isinstance(id_hint, IDHint):
+            name_source = id_hint.name_source
+            if name_source == "argument":
+                suffix = "_arg"
+            elif name_source == "local":
+                suffix = "_"
+            elif name_source == "immediate":
+                suffix = "_imd"
+            elif name_source == "lambda":
+                suffix = "_lam"
+            elif name_source == "function":
+                suffix = "_f"
+            else:
+                print "INVALID NAME SOURCE:", name_source
+                NOT_REACHABLE()
+
+            first_name = id_hint.original_name \
+                         if not is_python_reserved_word(id_hint.original_name) \
+                         else "_" + id_hint.original_name
+            if first_name == "":
+                first_name = "_"
+            trial_count = 0
+            while True:
+                trial_name = first_name if trial_count == 0 else (first_name + suffix + str(trial_count))
+                if trial_name not in local_dict or local_dict[trial_name] == _id:
+                    local_dict[trial_name] = _id
+                    return trial_name
+                trial_count += 1
+            NOT_REACHABLE()
+        else:
+            return id_hint
+    def_mk_tmp.convert_meta_id(naive_renaming_driver, {})
     return def_mk_tmp
 
 def translate_string(s):
