@@ -260,6 +260,20 @@ ASTHD *astmisc_vert_lookahead(ASTHD* scope, ASTHD *vert_suite, ASTDS_Arguments *
          *      c
          */
         return imd_inline_to_single_xexpr((AST_InlineApp *)scope, vert_suite);
+    } else if(p_args && IS_DOUBLE_INLINE_XEXPR(scope)) {
+        /*
+         * def f>
+         *   a -> 1
+         *   b -> 2
+         * --
+         *   a   
+         *   b
+         *
+         */
+        AST_XExpr *dxexpr = (AST_XExpr *)scope;
+        ast_xexpr_set_vert_suite(dxexpr, (AST_Suite *)vert_suite);
+        dxexpr->args = *p_args;
+        return &dxexpr->hd;
     } else if(p_args) {
         /*
          * fun>
