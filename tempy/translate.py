@@ -307,9 +307,11 @@ class PyDefun(PyStmt):
                           kexpr.convert_meta_id(driver, local_dict))
                          for keyword, kexpr in self.kwd_args]
         if self.star:
-            self.star = self.star.convert_meta_id(driver, local_dict)
+            if isinstance(self.star, PyMetaID):
+                self.star = self.star.convert_meta_id(driver, local_dict).name
         if self.dstar:
-            self.dstar = self.dstar.convert_meta_id(driver, local_dict)
+            if isinstance(self.dstar, PyMetaID):
+                self.dstar = self.dstar.convert_meta_id(driver, local_dict).name
         meta_convert_stmt_list(self.stmt_list, driver, local_dict)
 
     def to_string(self, indent, acc_indent):
@@ -954,10 +956,22 @@ class PyLambda(PyExpr):
                      kexpr.convert_meta_id(driver, local_dict))
                     for keyword, kexpr in self.kwd_args]
         expr = self.expr.convert_meta_id(driver, local_dict)
-        star = self.star.convert_meta_id(driver, local_dict) \
-                if self.star else None
-        dstar = self.dstar.convert_meta_id(driver, local_dict) \
-                if self.dstar else None
+        if self.star:
+            if isinstance(self.dstar, PyMetaID):
+                star = self.star.convert_meta_id(driver, local_dict).name \
+                        if self.star else None
+            else:
+                star = self.star
+        else:
+            star = None
+        if self.dstar:
+            if isinstance(self.dstar, PyMetaID):
+                dstar = self.dstar.convert_meta_id(driver, local_dict).name
+            else:
+                dstar = self.dstar
+        else:
+            dstar = None
+
 
         return PyLambda(args,
                         kwd_args,
@@ -2358,8 +2372,8 @@ def translate_def(translator, lisn, comp_env, premise, config, context):
     no_duplication_found = True
     for name in sarg_strs + \
                 keywords + \
-                (star_str or []) + \
-                (dstar_str or []):
+                ([star_str] if star_str else []) + \
+                ([dstar_str] if dstar_str else []):
         if name not in name_set:
             name_set.add(name)
         else:
