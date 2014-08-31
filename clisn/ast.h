@@ -40,10 +40,10 @@ typedef struct {
     char *str; /* can be null. in this case, len is 0 */
 } ASTDS_String;
 
-typedef struct ASTDS_SingleArg {
+typedef struct ASTDS_PosArg {
     ASTHD *param;
-    struct ASTDS_SingleArg *next;
-} ASTDS_SingleArg;
+    struct ASTDS_PosArg *next;
+} ASTDS_PosArg;
 
 typedef struct ASTDS_KwdArg {
     ASTDS_String name;
@@ -53,7 +53,7 @@ typedef struct ASTDS_KwdArg {
 
 typedef struct { 
     ASTLoc loc;
-    ASTDS_SingleArg *sargs;
+    ASTDS_PosArg *pargs;
     ASTDS_KwdArg *kargs;
     int has_star, has_dstar, has_amp, has_damp;
     ASTHD *star, *dstar, *amp, *damp;
@@ -86,7 +86,7 @@ typedef struct AST_Trailer {
 typedef struct { 
     ASTHD hd;
     ASTHD *scope;
-    ASTDS_Arguments args;
+    ASTDS_Arguments arg_info;
 } AST_InlineApp;
 
 typedef struct {
@@ -245,7 +245,7 @@ typedef struct {
 
     ASTDS_String head_label;
     ASTHD *head_expr;
-    ASTDS_Arguments args;
+    ASTDS_Arguments arg_info;
     ASTHD *vert_suite;
 } AST_XExpr;
 
@@ -298,21 +298,21 @@ void ast_xexpr_set_vert_suite(AST_XExpr *xexpr, AST_Suite *vert_suite);
 
 void ast_free(ASTHD *ast);
 
-ASTDS_SingleArg* astds_singlearg_cons(ASTHD *elem, ASTDS_SingleArg* sarg);
+ASTDS_PosArg* astds_singlearg_cons(ASTHD *elem, ASTDS_PosArg* sarg);
 ASTDS_KwdArg* astds_kwdarg_cons(ASTDS_String dstr, ASTHD *elem, ASTDS_KwdArg *karg);
 
-void free_singlearg(ASTDS_SingleArg* sarg);
+void free_singlearg(ASTDS_PosArg* parg);
 void free_kwdarg(ASTDS_KwdArg* karg);
 void astds_free_arguments(ASTDS_Arguments *arguments);
 
-ASTDS_Arguments astds_arguments(ASTDS_SingleArg *sargs,
+ASTDS_Arguments astds_arguments(ASTDS_PosArg *pargs,
                                 ASTDS_KwdArg *kargs,
                                 ASTHD *star,
                                 ASTHD *dstar,
                                 ASTHD *amp,
                                 ASTHD *damp);
 ASTDS_Arguments astds_empty_arguments();
-ASTHD* ast_inline_app(ASTHD *scope, ASTDS_Arguments args);
+ASTHD* ast_inline_app(ASTHD *scope, ASTDS_Arguments arg_info);
 ASTHD* ast_arrow(const char *str, ASTHD *param);
 ASTHD* ast_arrow_with_literal_del(AST_Literal *literal, ASTHD *param);
 

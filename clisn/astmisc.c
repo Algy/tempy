@@ -86,62 +86,62 @@ void astmisc_remove_onearg(ASTMISC_OneArg *oarg) {
     free_dsstring(&oarg->name);
 }
 
-void astmisc_check_arg_order(ASTMISC_OneArg new_onearg, ASTDS_Arguments args, ParseResult *pres) {
+void astmisc_check_arg_order(ASTMISC_OneArg new_onearg, ASTDS_Arguments arg_info, ParseResult *pres) {
     switch(new_onearg.type) {
         case onearg_pos:
             break;
         case onearg_pair:
-            if(args.sargs) {
+            if(arg_info.pargs) {
                 pres_set_error(pres, PARSE_ERR_ILLEGAL_ARG, "keyword argument cannot precede any positional argument");
             }
             break;
         case onearg_star:
-            if(args.sargs || args.kargs) {
+            if(arg_info.pargs || arg_info.kargs) {
                 pres_set_error(pres, PARSE_ERR_ILLEGAL_ARG, "star-argument cannot precede any positional or keword argument");
             }
-            if(args.has_star) {
+            if(arg_info.has_star) {
                 pres_set_error(pres, PARSE_ERR_ILLEGAL_ARG, "duplicated star-argument");
             }
             break;
         case onearg_dstar:
-            if(args.sargs || args.kargs) {
+            if(arg_info.pargs || arg_info.kargs) {
                 pres_set_error(pres, PARSE_ERR_ILLEGAL_ARG, "double-star-argument cannot precede any positional or keword argument");
             }
-            if(args.has_star) {
+            if(arg_info.has_star) {
                 pres_set_error(pres, PARSE_ERR_ILLEGAL_ARG, "double-star-argument cannot precede star-argument");
             }
-            if(args.has_dstar) {
+            if(arg_info.has_dstar) {
                 pres_set_error(pres, PARSE_ERR_ILLEGAL_ARG, "duplicated double-star-argument");
             }
             break;
         case onearg_amp:
-            if(args.sargs || args.kargs) {
+            if(arg_info.pargs || arg_info.kargs) {
                 pres_set_error(pres, PARSE_ERR_ILLEGAL_ARG, "ampersand-argument cannot precede any positional or keword argument");
             }
-            if(args.has_star) {
+            if(arg_info.has_star) {
                 pres_set_error(pres, PARSE_ERR_ILLEGAL_ARG, "ampersand-argument cannot precede star-argument");
             }
-            if(args.has_dstar) {
+            if(arg_info.has_dstar) {
                 pres_set_error(pres, PARSE_ERR_ILLEGAL_ARG, "ampersand-argument cannot precede double-star-argument");
             }
-            if(args.has_amp) {
+            if(arg_info.has_amp) {
                 pres_set_error(pres, PARSE_ERR_ILLEGAL_ARG, "duplicated ampersand-argument");
             }
             break;
         case onearg_damp:
-            if(args.sargs || args.kargs) {
+            if(arg_info.pargs || arg_info.kargs) {
                 pres_set_error(pres, PARSE_ERR_ILLEGAL_ARG, "double-ampersand-argument cannot precede any positional or keword argument");
             }
-            if(args.has_star) {
+            if(arg_info.has_star) {
                 pres_set_error(pres, PARSE_ERR_ILLEGAL_ARG, "double-ampersand-argument cannot precede star-argument");
             }
-            if(args.has_dstar) {
+            if(arg_info.has_dstar) {
                 pres_set_error(pres, PARSE_ERR_ILLEGAL_ARG, "double-ampersand-argument cannot precede double-star-argument");
             }
-            if(args.has_amp) {
+            if(arg_info.has_amp) {
                 pres_set_error(pres, PARSE_ERR_ILLEGAL_ARG, "double-ampersand-argument cannot precede double-star-argument");
             }
-            if(args.has_damp) {
+            if(arg_info.has_damp) {
                 pres_set_error(pres, PARSE_ERR_ILLEGAL_ARG, "duplicated double-ampersand-argument");
             }
             break;
@@ -188,7 +188,7 @@ ASTHD* astmisc_make_assign(short assign_type, ASTHD *lvalue, ASTHD *param, Parse
 void astmisc_args_prepend(ASTMISC_OneArg B, ASTDS_Arguments *C) {
     switch(B.type) {
         case onearg_pos:
-            C->sargs = astds_singlearg_cons(B.value, C->sargs);
+            C->pargs = astds_singlearg_cons(B.value, C->pargs);
             break;
         case onearg_pair:
             C->kargs = astds_kwdarg_cons(B.name, B.value, C->kargs);
@@ -226,7 +226,7 @@ void astmisc_args_prepend(ASTMISC_OneArg B, ASTDS_Arguments *C) {
 
 static ASTHD *imd_inline_to_single_xexpr(AST_InlineApp *iapp, ASTHD *vert_suite) {
     ASTHD *inside_scope = iapp->scope;
-    ASTHD *ret = ast_xexpr_single(inside_scope, iapp->args, vert_suite);
+    ASTHD *ret = ast_xexpr_single(inside_scope, iapp->arg_info, vert_suite);
     ast_shallow_remove(&iapp->hd);
 
     return ret;
@@ -234,7 +234,7 @@ static ASTHD *imd_inline_to_single_xexpr(AST_InlineApp *iapp, ASTHD *vert_suite)
 
 static ASTHD *imd_inline_to_double_xexpr(AST_InlineApp *iapp, char *head_name, ASTHD *vert_suite) {
     ASTHD *inside_scope = iapp->scope;
-    ASTHD *ret = ast_xexpr_double(head_name, inside_scope, iapp->args, vert_suite);
+    ASTHD *ret = ast_xexpr_double(head_name, inside_scope, iapp->arg_info, vert_suite);
     ast_shallow_remove(&iapp->hd);
 
     return ret;
@@ -272,7 +272,7 @@ ASTHD *astmisc_vert_lookahead(ASTHD* scope, ASTHD *vert_suite, ASTDS_Arguments *
          */
         AST_XExpr *dxexpr = (AST_XExpr *)scope;
         ast_xexpr_set_vert_suite(dxexpr, (AST_Suite *)vert_suite);
-        dxexpr->args = *p_args;
+        dxexpr->arg_info = *p_args;
         return &dxexpr->hd;
     } else if(p_args) {
         /*
@@ -327,7 +327,7 @@ ASTHD *convert_inline_app_to_xexpr(ASTHD *ast) {
         ASTHD *ret;
         AST_InlineApp *iapp = (AST_InlineApp *)ast;
 
-        ret = ast_xexpr_single(iapp->scope, iapp->args, NULL);
+        ret = ast_xexpr_single(iapp->scope, iapp->arg_info, NULL);
         ast_shallow_remove(ast);
         return ret;
     } else {
@@ -371,7 +371,7 @@ static void app_line_changer(ASTHD **p_ast, void *arg) {
         AST_InlineApp *iapp;
 
         iapp = (AST_InlineApp *)root;
-        ret = ast_xexpr_single(iapp->scope, iapp->args, NULL);
+        ret = ast_xexpr_single(iapp->scope, iapp->arg_info, NULL);
         ret->loc = root->loc;
         ast_shallow_remove(root);
         *p_ast = ret;

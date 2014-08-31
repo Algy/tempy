@@ -293,7 +293,7 @@ ASTHD* ast_xexpr_single(ASTHD *head_expr, ASTDS_Arguments argument,
     xexpr->has_vert_suite = !!vert_suite;
     xexpr->head_expr = head_expr;
     xexpr->head_label = empty_dsstring();
-    xexpr->args = argument;
+    xexpr->arg_info = argument;
     xexpr->vert_suite = vert_suite;
 
     return &xexpr->hd;
@@ -307,7 +307,7 @@ ASTHD* ast_xexpr_double(const char *head_label_str, ASTHD *head_expr, ASTDS_Argu
     xexpr->has_vert_suite = !!vert_suite;
     xexpr->head_label = dsstring_from_str(head_label_str);
     xexpr->head_expr = head_expr;
-    xexpr->args = argument;
+    xexpr->arg_info = argument;
     xexpr->vert_suite = vert_suite;
 
     return &xexpr->hd;
@@ -319,11 +319,11 @@ void ast_xexpr_set_vert_suite(AST_XExpr *xexpr, AST_Suite *vert_suite) {
 }
 
 
-ASTDS_SingleArg* astds_singlearg_cons(ASTHD *elem, ASTDS_SingleArg* sarg) {
-    ASTDS_SingleArg *ret = (ASTDS_SingleArg *)malloc(sizeof(ASTDS_SingleArg));
+ASTDS_PosArg* astds_singlearg_cons(ASTHD *elem, ASTDS_PosArg* parg) {
+    ASTDS_PosArg *ret = (ASTDS_PosArg *)malloc(sizeof(ASTDS_PosArg));
 
     ret->param = elem;
-    ret->next = sarg;
+    ret->next = parg;
 
     return ret;
 }
@@ -338,7 +338,7 @@ ASTDS_KwdArg* astds_kwdarg_cons(ASTDS_String dstr, ASTHD *elem, ASTDS_KwdArg *ka
     return ret;
 }
 
-ASTDS_Arguments astds_arguments(ASTDS_SingleArg *sargs,
+ASTDS_Arguments astds_arguments(ASTDS_PosArg *pargs,
                                 ASTDS_KwdArg *kargs,
                                 ASTHD *star,
                                 ASTHD *dstar,
@@ -346,7 +346,7 @@ ASTDS_Arguments astds_arguments(ASTDS_SingleArg *sargs,
                                 ASTHD *damp) {
 
     ASTDS_Arguments ret;
-    ret.sargs = sargs;
+    ret.pargs = pargs;
     ret.kargs = kargs;
     ret.star = star;
     ret.dstar = dstar;
@@ -365,10 +365,10 @@ ASTDS_Arguments astds_empty_arguments() {
     return astds_arguments(NULL, NULL, NULL, NULL, NULL, NULL);
 }
 
-ASTHD* ast_inline_app(ASTHD *scope, ASTDS_Arguments args) {
+ASTHD* ast_inline_app(ASTHD *scope, ASTDS_Arguments arg_info) {
     AST_InlineApp *iapp = (AST_InlineApp *)ast_make(asttype_imd_inline_app, sizeof(AST_InlineApp));
     iapp->scope = scope;
-    iapp->args = args;
+    iapp->arg_info = arg_info;
 
     return &iapp->hd;
 }
@@ -439,7 +439,7 @@ static void ast_free_unop(ASTHD *ast) {
 
 static void ast_free_imd_inline_app(ASTHD *ast) {
     AST_InlineApp *iapp = (AST_InlineApp *)ast;
-    astds_free_arguments(&iapp->args);
+    astds_free_arguments(&iapp->arg_info);
     ast_free(iapp->scope);
 }
 
@@ -468,7 +468,7 @@ static void ast_free_assign(ASTHD *ast) {
 }
 
 void astds_free_arguments(ASTDS_Arguments *arguments) {
-    free_singlearg(arguments->sargs);
+    free_singlearg(arguments->pargs);
     free_kwdarg(arguments->kargs);
     if(arguments->has_star)
         ast_free(arguments->star);
@@ -485,7 +485,7 @@ static void ast_free_xexpr(ASTHD *ast) {
     
     free_dsstring(&xexpr->head_label);
     ast_free(xexpr->head_expr);
-    astds_free_arguments(&xexpr->args);
+    astds_free_arguments(&xexpr->arg_info);
 
     ast_free(xexpr->vert_suite);
 }
@@ -588,23 +588,23 @@ static void suite_visit(ASTHD *ast, ast_visitor_fun visitor, void *arg) {
     }
 }
 
-static void arguments_visit(ASTDS_Arguments *args, ast_visitor_fun visitor, void *arg) {
-    ASTDS_SingleArg *sp;
+static void arguments_visit(ASTDS_Arguments *arg_info, ast_visitor_fun visitor, void *arg) {
+    ASTDS_PosArg *sp;
     ASTDS_KwdArg *kp;
-    for(sp = args->sargs; sp; sp = sp->next) {
+    for(sp = arg_info->pargs; sp; sp = sp->next) {
         ast_visit(&sp->param, visitor, arg);
     }
-    for(kp = args->kargs; kp; kp = kp->next) {
+    for(kp = arg_info->kargs; kp; kp = kp->next) {
         ast_visit(&kp->param, visitor, arg);
     }
-    if(args->has_star)
-        ast_visit(&args->star, visitor, arg);
-    if(args->has_dstar)
-        ast_visit(&args->dstar, visitor, arg);
-    if(args->has_amp)
-        ast_visit(&args->amp, visitor, arg);
-    if(args->has_damp)
-        ast_visit(&args->damp, visitor, arg);
+    if(arg_info->has_star)
+        ast_visit(&arg_info->star, visitor, arg);
+    if(arg_info->has_dstar)
+        ast_visit(&arg_info->dstar, visitor, arg);
+    if(arg_info->has_amp)
+        ast_visit(&arg_info->amp, visitor, arg);
+    if(arg_info->has_damp)
+        ast_visit(&arg_info->damp, visitor, arg);
 }
 
 
@@ -613,7 +613,7 @@ static void xexpr_visit(ASTHD *ast, ast_visitor_fun visitor, void *arg) {
     ast_visit(&xexpr->head_expr, visitor, arg);
     if(xexpr->has_vert_suite)
         ast_visit(&xexpr->vert_suite, visitor, arg);
-    arguments_visit(&xexpr->args, visitor, arg);
+    arguments_visit(&xexpr->arg_info, visitor, arg);
 }
 
 void ast_visit(ASTHD **root, ast_visitor_fun visitor, void *arg) {
@@ -645,7 +645,7 @@ void ast_visit(ASTHD **root, ast_visitor_fun visitor, void *arg) {
             {
             AST_InlineApp *iapp = (AST_InlineApp *)ast;
             ast_visit(&iapp->scope, visitor, arg);
-            arguments_visit(&iapp->args, visitor, arg);
+            arguments_visit(&iapp->arg_info, visitor, arg);
             }
             break;
         case asttype_imd_arrow:
@@ -658,9 +658,9 @@ void ast_visit(ASTHD **root, ast_visitor_fun visitor, void *arg) {
     visitor(root, arg);
 }
 
-void free_singlearg(ASTDS_SingleArg* sarg) {
-    ASTDS_SingleArg *p, *next;
-    for(p = sarg; p; p = next) {
+void free_singlearg(ASTDS_PosArg* parg) {
+    ASTDS_PosArg *p, *next;
+    for(p = parg; p; p = next) {
         next = p->next;
         ast_free(p->param);
         free(p);
@@ -710,40 +710,40 @@ static void print_indent(int indent) {
 }
 static void println() { printf("\n"); }
 static void print_dsstring(ASTDS_String *dstr) { printf("%s", dstr->str); }
-static void print_arguments(ASTDS_Arguments *args, int indent) {
-    ASTDS_SingleArg *sa;
+static void print_arguments(ASTDS_Arguments *arg_info, int indent) {
+    ASTDS_PosArg *pa;
     ASTDS_KwdArg *ka;
 
-    for(sa = args->sargs; sa; sa = sa->next) {
+    for(pa = arg_info->pargs; pa; pa = pa->next) {
         print_indent(indent);
         printf("$ ->\n");
-        print_ast(sa->param, indent + 2);
+        print_ast(pa->param, indent + 2);
     }
-    for(ka = args->kargs; ka; ka = ka->next) {
+    for(ka = arg_info->kargs; ka; ka = ka->next) {
         print_indent(indent);
         print_dsstring(&ka->name);
         printf(" -> \n");
         print_ast(ka->param, indent + 2);
     }
-    if(args->has_star) {
+    if(arg_info->has_star) {
         print_indent(indent);
         printf("* -> \n");
-        print_ast(args->star, indent + 2);
+        print_ast(arg_info->star, indent + 2);
     }
-    if(args->has_dstar) {
+    if(arg_info->has_dstar) {
         print_indent(indent);
         printf("** -> \n");
-        print_ast(args->dstar, indent + 2);
+        print_ast(arg_info->dstar, indent + 2);
     }
-    if(args->has_amp) {
+    if(arg_info->has_amp) {
         print_indent(indent);
         printf("& -> \n");
-        print_ast(args->amp, indent + 2);
+        print_ast(arg_info->amp, indent + 2);
     }
-    if(args->has_damp) {
+    if(arg_info->has_damp) {
         print_indent(indent);
         printf("&& -> \n");
-        print_ast(args->damp, indent + 2);
+        print_ast(arg_info->damp, indent + 2);
     }
 
 }
@@ -903,7 +903,7 @@ static void print_xexpr(ASTHD *ast, int indent) {
 
     print_indent(indent + 2);
     printf("arguments -> \n");
-    print_arguments(&xexpr->args, indent+4);
+    print_arguments(&xexpr->arg_info, indent+4);
 
     print_indent(indent + 2);
     printf("suite -> \n");

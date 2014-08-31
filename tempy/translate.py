@@ -104,21 +104,21 @@ def force_dotted_name(node):
     result = _iter(node)
     return result
 
-def force_one_sarg(xexpr):
+def force_one_parg(xexpr):
     if xexpr["type"] != "xexpr":
         return None
 
-    args = xexpr["args"]
-    if args["kargs"] or \
-       args["has_star"] or \
-       args["has_dstar"] or \
-       args["has_amp"]  or \
-       args["has_damp"]:
+    arg_info = xexpr["arg_info"]
+    if arg_info["kargs"] or \
+       arg_info["has_star"] or \
+       arg_info["has_dstar"] or \
+       arg_info["has_amp"]  or \
+       arg_info["has_damp"]:
         return None
     else:
-        sargs = args["sargs"]
-        if len(sargs) == 1:
-            return sargs[0]
+        pargs = arg_info["pargs"]
+        if len(pargs) == 1:
+            return pargs[0]
         else:
             return None
 
@@ -152,7 +152,7 @@ class ToBeXExpr(Checker):
     def __init__(self,
                  head_label=None,
                  head_xexpr=None,
-                 sargs=None,
+                 pargs=None,
                  kargs=None,
                  star=None,
                  dstar=None,
@@ -162,13 +162,13 @@ class ToBeXExpr(Checker):
                  svert=None,
                  kvert=None):
         '''
-        sargs, kargs: None | ToBeListOf
+        pargs, kargs: None | ToBeListOf
 
         TypeCheck --
         '''
         self.head_label = head_label
         self.head_xexpr = head_xexpr
-        self.sargs = sargs
+        self.pargs = pargs
         self.kargs = kargs
         self.star = star
         self.dstar = dstar
@@ -279,14 +279,14 @@ def stmt_list_to_string(stmt_list, indent, acc_indent):
 
 
 class PyDefun(PyStmt):
-    def __init__(self, fun_name, args, kwd_args, stmt_list, star=None, dstar=None, docstring=""):
+    def __init__(self, fun_name, pos_args, kwd_args, stmt_list, star=None, dstar=None, docstring=""):
         '''
         Argument -
             kwd_args: (string | PyMetaID, PyExpr) list
 
         '''
         self.fun_name = fun_name # string or PyMetaID
-        self.args = args or []
+        self.pos_args = pos_args or []
         self.kwd_args = kwd_args or []
         self.star = star
         self.dstar = dstar
@@ -297,10 +297,10 @@ class PyDefun(PyStmt):
         local_dict = {}
         if isinstance(self.fun_name, PyMetaID):
             self.fun_name = self.fun_name.convert_meta_id(driver, local_dict).name
-        self.args = [(pos_arg.convert_meta_id(driver, local_dict).name
+        self.pos_args = [(pos_arg.convert_meta_id(driver, local_dict).name
                         if isinstance(pos_arg, PyMetaID)
                         else pos_arg)
-                     for pos_arg in self.args]
+                     for pos_arg in self.pos_args]
         self.kwd_args = [(keyword.convert_meta_id(driver, local_dict).name
                             if isinstance(keyword, PyMetaID)
                             else keyword,
@@ -318,7 +318,7 @@ class PyDefun(PyStmt):
         arglst = []
 
         arglst += [(pos_arg.to_string() if isinstance(pos_arg, PyMetaID) else pos_arg)
-                    for pos_arg in self.args]
+                    for pos_arg in self.pos_args]
         for keyword, arg_expr in self.kwd_args:
             if isinstance(keyword, PyMetaID):
                 keyword = keyword.to_string()
@@ -933,13 +933,13 @@ class PyLambda(PyExpr):
     def may_have_side_effect(self):
         return False
 
-    def __init__(self, args, kwd_args, expr, star=None, dstar=None, docstring=""):
+    def __init__(self, pos_args, kwd_args, expr, star=None, dstar=None, docstring=""):
         '''
         Argument -
             kwd_args: (string, PyExpr) list
 
         '''
-        self.args = args or []
+        self.pos_args = pos_args or []
         self.kwd_args = kwd_args or []
         self.star = star
         self.dstar = dstar
@@ -947,10 +947,10 @@ class PyLambda(PyExpr):
         self.expr = expr 
 
     def convert_meta_id(self, driver, local_dict):
-        args = [(pos_arg.convert_meta_id(driver, local_dict).name
+        pos_args = [(pos_arg.convert_meta_id(driver, local_dict).name
                   if isinstance(pos_arg, PyMetaID)
                   else pos_arg)
-                for pos_arg in self.args]
+                for pos_arg in self.pos_args]
         kwd_args = [(keyword.convert_meta_id(driver, local_dict).name
                        if isinstance(keyword, PyMetaID) else keyword,
                      kexpr.convert_meta_id(driver, local_dict))
@@ -973,7 +973,7 @@ class PyLambda(PyExpr):
             dstar = None
 
 
-        return PyLambda(args,
+        return PyLambda(pos_args,
                         kwd_args,
                         expr,
                         star,
@@ -982,7 +982,7 @@ class PyLambda(PyExpr):
 
     def to_string(self):
         arglst = [(pos_arg.to_string() if isinstance(pos_arg, PyMetaID) else pos_arg)
-                  for pos_arg in self.args]
+                  for pos_arg in self.pos_args]
         for keyword, arg_expr in self.kwd_args:
             if isinstance(keyword, PyMetaID):
                 keyword = keyword.to_string()
@@ -1983,7 +1983,7 @@ def nt_xexpr(translator, lisn, comp_env, premise, config, context):
     else:
         head_expr = lisn["head_expr"]
         head_expr_name = force_name(head_expr)
-        args = lisn["args"]
+        arg_info = lisn["arg_info"]
         success = True
 
         # lookahead
@@ -2014,33 +2014,33 @@ def nt_xexpr(translator, lisn, comp_env, premise, config, context):
                                lisn["locinfo"]))
             success = False
         applicant_concl = translator(head_expr, comp_env, Premise(True), config, context)
-        sarg_concls = [translator(sarg, comp_env, Premise(True), config, context) for sarg in args["sargs"]]
-        karg_keywords = [k for k, _ in args["kargs"]]
-        karg_concls = [translator(karg, comp_env, Premise(True), config, context) for _, karg in args["kargs"]]
-        star_concl = translator(args["star"],
+        parg_concls = [translator(parg, comp_env, Premise(True), config, context) for parg in arg_info["pargs"]]
+        karg_keywords = [k for k, _ in arg_info["kargs"]]
+        karg_concls = [translator(karg, comp_env, Premise(True), config, context) for _, karg in arg_info["kargs"]]
+        star_concl = translator(arg_info["star"],
                                 comp_env,
                                 Premise(True),
                                 config,
-                                context) if args["has_star"] else None
-        dstar_concl = translator(args["dstar"],
+                                context) if arg_info["has_star"] else None
+        dstar_concl = translator(arg_info["dstar"],
                                  comp_env,
                                  Premise(True),
                                  config,
-                                 context) if args["has_dstar"] else None
+                                 context) if arg_info["has_dstar"] else None
 
 
         if not success:
             return error_conclusion()
 
         return xintegrate_conclusion(comp_env,
-                                    lambda callee_expr, sarg_exprs, karg_exprs, star_expr, dstar_expr: \
+                                    lambda callee_expr, parg_exprs, karg_exprs, star_expr, dstar_expr: \
                                       PyCall(callee_expr,
-                                             sarg_exprs, 
+                                             parg_exprs, 
                                              zip(karg_keywords, karg_exprs),
                                              star_expr,
                                              dstar_expr),
                                     applicant_concl,
-                                    sarg_concls,
+                                    parg_concls,
                                     karg_concls,
                                     star_concl,
                                     dstar_concl)
@@ -2123,7 +2123,7 @@ def translate_branch(translator, lisn, comp_env, premise, config, context):
        return error_conclusion()
 
     success = True
-    args = lisn["args"]
+    arg_info = lisn["arg_info"]
     vert_suite = lisn["vert_suite"]
 
     res_list = [obj["param"]
@@ -2133,8 +2133,8 @@ def translate_branch(translator, lisn, comp_env, premise, config, context):
                        for obj in vert_suite["exprs"]
                        if obj["is_arrow"]]
 
-    pred_list = args["sargs"]
-    tagged_pred_list = args["kargs"]
+    pred_list = arg_info["pargs"]
+    tagged_pred_list = arg_info["kargs"]
     if tagged_pred_list:
         set_invalid_predicate(tagged_pred_list[0][1])
         success = False
@@ -2143,19 +2143,19 @@ def translate_branch(translator, lisn, comp_env, premise, config, context):
         set_invalid_predicate(tagged_res_list[0][1])
         success = False
 
-    if args["has_star"]:
-        set_invalid_predicate(args["star"])
+    if arg_info["has_star"]:
+        set_invalid_predicate(arg_info["star"])
         success = False
-    if args["has_dstar"]:
-        set_invalid_predicate(args["dstar"])
-        success = False
-
-    if args["has_amp"]:
-        set_invalid_predicate(args["amp"])
+    if arg_info["has_dstar"]:
+        set_invalid_predicate(arg_info["dstar"])
         success = False
 
-    if args["has_damp"]:
-        set_invalid_predicate(args["damp"])
+    if arg_info["has_amp"]:
+        set_invalid_predicate(arg_info["amp"])
+        success = False
+
+    if arg_info["has_damp"]:
+        set_invalid_predicate(arg_info["damp"])
         success = False
 
     if not success:
@@ -2259,19 +2259,19 @@ def translate_def(translator, lisn, comp_env, premise, config, context):
     assert is_def_node(lisn)
 
     def gather_formal_info():
-        arg_info = lisn["args"]
-        sarg_strs = []
+        arg_info = lisn["arg_info"]
+        parg_strs = []
         kwd_pairs = []
         star_str = None
         dstar_str = None
 
         argument_test_success = True
-        for sarg_node in arg_info["sargs"]:
-            sarg_str = force_name(sarg_node)
-            if sarg_str is None:
+        for parg_node in arg_info["pargs"]:
+            parg_str = force_name(parg_node)
+            if parg_str is None:
                 argument_test_success = False
             else:
-                sarg_strs.append(sarg_str)
+                parg_strs.append(parg_str)
 
         for karg_str, karg_val_node in arg_info["kargs"]:
             kwd_pairs.append((karg_str, karg_val_node))
@@ -2315,11 +2315,11 @@ def translate_def(translator, lisn, comp_env, premise, config, context):
                                            lisn["head_expr"]["locinfo"]))
             argument_test_success = False
         if argument_test_success:
-            return (def_name, sarg_strs, kwd_pairs, star_str, dstar_str)
+            return (def_name, parg_strs, kwd_pairs, star_str, dstar_str)
         else:
             return None
 
-    def make_defun(def_xexpr, def_id, sarg_ids, karg_id_pairs, star_id, dstar_id):
+    def make_defun(def_xexpr, def_id, parg_ids, karg_id_pairs, star_id, dstar_id):
         '''
         Return - 
             PyDefun
@@ -2333,7 +2333,7 @@ def translate_def(translator, lisn, comp_env, premise, config, context):
         else:
             def_stmts = [PyPass()]
         return PyDefun(def_id,
-                       sarg_ids,
+                       parg_ids,
                        karg_id_pairs,
                        def_stmts,
                        star_id,
@@ -2343,9 +2343,9 @@ def translate_def(translator, lisn, comp_env, premise, config, context):
     if formal_info is None:
         return error_conclusion()
     # def_name: string
-    # sarg_strs: string list
+    # parg_strs: string list
     # kwd_pairs: (string, node) list
-    def_name, sarg_strs, kwd_pairs, star_str, dstar_str = formal_info
+    def_name, parg_strs, kwd_pairs, star_str, dstar_str = formal_info
     keywords = [k for k, _ in kwd_pairs]
     kw_concls = [translator(knode,
                             comp_env,
@@ -2370,7 +2370,7 @@ def translate_def(translator, lisn, comp_env, premise, config, context):
     # formal arguments duplication check
     name_set = set([])
     no_duplication_found = True
-    for name in sarg_strs + \
+    for name in parg_strs + \
                 keywords + \
                 ([star_str] if star_str else []) + \
                 ([dstar_str] if dstar_str else []):
@@ -2390,10 +2390,10 @@ def translate_def(translator, lisn, comp_env, premise, config, context):
     comp_env.setup_local_frame("def") 
 
     # set names of arguments into new local environment
-    sarg_ids = []
+    parg_ids = []
     karg_id_pairs = []
-    for name in sarg_strs:
-        sarg_ids.append(PyMetaID(ensure_local_arg_name(comp_env, name)))
+    for name in parg_strs:
+        parg_ids.append(PyMetaID(ensure_local_arg_name(comp_env, name)))
 
     for name, kexpr in zip(keywords, karg_default_exprs):
         k_id = ensure_local_arg_name(comp_env, name)
@@ -2407,7 +2407,7 @@ def translate_def(translator, lisn, comp_env, premise, config, context):
         dstar_id = PyMetaID(ensure_local_arg_name(comp_env, dstar_str))
     defun = make_defun(lisn,
                        PyMetaID(function_id),
-                       sarg_ids,
+                       parg_ids,
                        karg_id_pairs,
                        star_id,
                        dstar_id)
@@ -2422,9 +2422,9 @@ def translate_def(translator, lisn, comp_env, premise, config, context):
 
 def translate_let(translator, lisn, comp_env, premise, config, context):
     if lisn["has_vert_suite"]:
-        args = lisn["args"]
+        arg_info = lisn["arg_info"]
         # TODO: syntax checking ( keyword duplication, prohbiting star&dstar argument)
-        kargs = args["kargs"]
+        kargs = arg_info["kargs"]
         keywords = [k for k, _ in kargs]
         concls = [translator(node, comp_env, Premise(True), config, context)
                     for _, node in kargs]

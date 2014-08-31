@@ -341,7 +341,7 @@ static PyObject* dictify_suite(ASTHD *ast) {
 
 /*
  * 
- * sargs: lisn list
+ * pargs: lisn list
  * kargs: (string, lisn) list
  * has_star: bool
  * has_dstar: bool
@@ -359,15 +359,15 @@ static PyObject* dictify_suite(ASTHD *ast) {
  *
  */
 static PyObject* dictify_arguments(ASTDS_Arguments* arguments) {
-    PyObject *sarg_lst, *karg_lst, *ret;
-    ASTDS_SingleArg *sp;
+    PyObject *parg_lst, *karg_lst, *ret;
+    ASTDS_PosArg *pp;
     ASTDS_KwdArg *kp;
-    Py_ssize_t sarg_len, karg_len, i;
+    Py_ssize_t parg_len, karg_len, i;
 
-    sarg_len = 0;
-    for(sp = arguments->sargs; sp; sp = sp->next)
-        sarg_len++;
-    sarg_lst = PyList_New(sarg_len);
+    parg_len = 0;
+    for(pp = arguments->pargs; pp; pp = pp->next)
+        parg_len++;
+    parg_lst = PyList_New(parg_len);
 
     karg_len = 0;
     for(kp = arguments->kargs; kp; kp = kp->next)
@@ -376,8 +376,8 @@ static PyObject* dictify_arguments(ASTDS_Arguments* arguments) {
 
 
     i = 0;
-    for(sp = arguments->sargs; sp; sp = sp->next) {
-        PyList_SET_ITEM(sarg_lst, i, dictify_ast(sp->param));
+    for(pp = arguments->pargs; pp; pp = pp->next) {
+        PyList_SET_ITEM(parg_lst, i, dictify_ast(pp->param));
         i++;
     }
 
@@ -389,7 +389,7 @@ static PyObject* dictify_arguments(ASTDS_Arguments* arguments) {
         i++;
     }
 
-    ret = Py_BuildValue("{s:N,s:N}", "sargs", sarg_lst, "kargs", karg_lst);
+    ret = Py_BuildValue("{s:N,s:N}", "pargs", parg_lst, "kargs", karg_lst);
 
 #define STR_star "star"
 #define STR_dstar "dstar"
@@ -422,7 +422,7 @@ static PyObject* dictify_arguments(ASTDS_Arguments* arguments) {
  * type: "xexpr"
  * has_head_label: bool
  * has_vert_suite: bool
- * args: arguments
+ * arg_info: arguments
  * head_expr: lisn
  *
  * -- if has_head_label --
@@ -443,7 +443,7 @@ static PyObject* dictify_xexpr(ASTHD *ast) {
             "type", "xexpr",
             "has_head_label", PyBool_FromLong(xexpr->has_head_label),
             "has_vert_suite", PyBool_FromLong(xexpr->has_vert_suite),
-            "args", dictify_arguments(&xexpr->args),
+            "arg_info", dictify_arguments(&xexpr->arg_info),
             "head_expr", dictify_ast(xexpr->head_expr));
 
     if(xexpr->has_head_label) {

@@ -513,11 +513,11 @@ trailer(A) ::= LPAR(tokL) arguments(ARGS) RPAR(tokR). {
 }
 /* foo() */
 trailer(A) ::= LPAR(tokL) RPAR(tokR). { 
-    ASTDS_Arguments args;
+    ASTDS_Arguments arg_info;
 
-    args = astds_empty_arguments();
-    ARG_TRACK_TT(args, tokL, tokR);
-    A = ast_inline_app(NULL, args);
+    arg_info = astds_empty_arguments();
+    ARG_TRACK_TT(arg_info, tokL, tokR);
+    A = ast_inline_app(NULL, arg_info);
     TRACK_TT(A, tokL, tokR);
     RM_TOKEN(tokL);
     RM_TOKEN(tokR);
