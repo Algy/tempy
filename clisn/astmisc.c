@@ -215,13 +215,13 @@ void astmisc_args_prepend(ASTMISC_OneArg B, ASTDS_Arguments *C) {
 #define IS_DOUBLE_XEXPR(scope) \
     ((scope) && \
      (scope)->node_type == asttype_xexpr && \
-     ((AST_XExpr *)(scope))->multi_flag)
+     ((AST_XExpr *)(scope))->has_head_label)
 
 #define IS_DOUBLE_INLINE_XEXPR(scope) \
     ((scope) && \
      (scope)->node_type == asttype_xexpr && \
-     ((AST_XExpr *)(scope))->multi_flag && \
-     !((AST_XExpr *)(scope))->vert_flag)
+     ((AST_XExpr *)(scope))->has_head_label && \
+     !((AST_XExpr *)(scope))->has_vert_suite)
 
 
 static ASTHD *imd_inline_to_single_xexpr(AST_InlineApp *iapp, ASTHD *vert_suite) {

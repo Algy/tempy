@@ -420,14 +420,14 @@ static PyObject* dictify_arguments(ASTDS_Arguments* arguments) {
 
 /* 
  * type: "xexpr"
- * multi_flag: bool
- * vert_flag: bool
+ * has_head_label: bool
+ * has_vert_suite: bool
  * args: arguments
  * head_expr: lisn
  *
- * -- if multi_flag is true --
- * head_name: string
- * -- if vert_flag is true --
+ * -- if has_head_label --
+ * head_label: string
+ * -- if has_vert_suite --
  * vert_suite: lisn(suite, specificaly)
  *
  *
@@ -441,18 +441,18 @@ static PyObject* dictify_xexpr(ASTHD *ast) {
 
     ret = Py_BuildValue("{s:s,s:N,s:N,s:N,s:N}",
             "type", "xexpr",
-            "multi_flag", PyBool_FromLong(xexpr->multi_flag),
-            "vert_flag", PyBool_FromLong(xexpr->vert_flag),
+            "has_head_label", PyBool_FromLong(xexpr->has_head_label),
+            "has_vert_suite", PyBool_FromLong(xexpr->has_vert_suite),
             "args", dictify_arguments(&xexpr->args),
             "head_expr", dictify_ast(xexpr->head_expr));
 
-    if(xexpr->multi_flag) {
+    if(xexpr->has_head_label) {
         PyObject *hn;
-        hn = PyString_FromString(xexpr->head_dstr.str);
-        PyDict_SetItemString(ret, "head_name", hn);
+        hn = PyString_FromString(xexpr->head_label.str);
+        PyDict_SetItemString(ret, "head_label", hn);
         Py_XDECREF(hn);
     }
-    if(xexpr->vert_flag) {
+    if(xexpr->has_vert_suite) {
         PyObject *vs;
         vs = dictify_suite(xexpr->vert_suite);
         PyDict_SetItemString(ret, "vert_suite", vs);

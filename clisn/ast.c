@@ -289,23 +289,23 @@ ASTHD* ast_xexpr_single(ASTHD *head_expr, ASTDS_Arguments argument,
                         ASTHD *vert_suite) {
     AST_XExpr *xexpr = (AST_XExpr *)ast_make(asttype_xexpr, sizeof(AST_XExpr));
 
-    xexpr->multi_flag = 0;
-    xexpr->vert_flag = !!vert_suite;
+    xexpr->has_head_label = 0;
+    xexpr->has_vert_suite = !!vert_suite;
     xexpr->head_expr = head_expr;
-    xexpr->head_dstr = empty_dsstring();
+    xexpr->head_label = empty_dsstring();
     xexpr->args = argument;
     xexpr->vert_suite = vert_suite;
 
     return &xexpr->hd;
 }
 
-ASTHD* ast_xexpr_double(const char *head_name, ASTHD *head_expr, ASTDS_Arguments argument,
+ASTHD* ast_xexpr_double(const char *head_label_str, ASTHD *head_expr, ASTDS_Arguments argument,
                         ASTHD *vert_suite) {
     AST_XExpr *xexpr = (AST_XExpr *)ast_make(asttype_xexpr, sizeof(AST_XExpr));
 
-    xexpr->multi_flag = 1;
-    xexpr->vert_flag = !!vert_suite;
-    xexpr->head_dstr = dsstring_from_str(head_name);
+    xexpr->has_head_label = 1;
+    xexpr->has_vert_suite = !!vert_suite;
+    xexpr->head_label = dsstring_from_str(head_label_str);
     xexpr->head_expr = head_expr;
     xexpr->args = argument;
     xexpr->vert_suite = vert_suite;
@@ -314,7 +314,7 @@ ASTHD* ast_xexpr_double(const char *head_name, ASTHD *head_expr, ASTDS_Arguments
 }
 
 void ast_xexpr_set_vert_suite(AST_XExpr *xexpr, AST_Suite *vert_suite) {
-    xexpr->vert_flag = !!vert_suite;
+    xexpr->has_vert_suite = !!vert_suite;
     xexpr->vert_suite = &vert_suite->hd;
 }
 
@@ -483,7 +483,7 @@ void astds_free_arguments(ASTDS_Arguments *arguments) {
 static void ast_free_xexpr(ASTHD *ast) {
     AST_XExpr *xexpr = (AST_XExpr *)ast;
     
-    free_dsstring(&xexpr->head_dstr);
+    free_dsstring(&xexpr->head_label);
     ast_free(xexpr->head_expr);
     astds_free_arguments(&xexpr->args);
 
@@ -611,7 +611,7 @@ static void arguments_visit(ASTDS_Arguments *args, ast_visitor_fun visitor, void
 static void xexpr_visit(ASTHD *ast, ast_visitor_fun visitor, void *arg) {
     AST_XExpr *xexpr = (AST_XExpr *)ast;
     ast_visit(&xexpr->head_expr, visitor, arg);
-    if(xexpr->vert_flag)
+    if(xexpr->has_vert_suite)
         ast_visit(&xexpr->vert_suite, visitor, arg);
     arguments_visit(&xexpr->args, visitor, arg);
 }
@@ -889,11 +889,11 @@ static void print_xexpr(ASTHD *ast, int indent) {
     AST_XExpr *xexpr = (AST_XExpr *)ast;
     print_indent(indent);
     print_locinfo(ast);
-    printf("%sXEXPR\n", xexpr->multi_flag?"DOUBLE ":"");
-    if(xexpr->multi_flag) {
+    printf("%sXEXPR\n", xexpr->has_head_label?"LABELED ":"");
+    if(xexpr->has_head_label) {
         print_indent(indent + 2);
-        printf("Head name: ");
-        print_dsstring(&xexpr->head_dstr);
+        printf("Head label: ");
+        print_dsstring(&xexpr->head_label);
         println();
     }
 

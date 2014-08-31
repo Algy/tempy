@@ -56,11 +56,11 @@ def suite_to_node_list(suite):
     return [obj["param"] for obj in suite["exprs"]]
 
 
-def check_multi_xexpr(node, head_name=None):
+def check_multi_xexpr(node, head_label=None):
     return node["type"] == "xexpr" and \
-           node["multi_flag"] and \
-           (head_name is None or
-            node["head_name"] == head_name)
+           node["has_head_label"] and \
+           (head_label is None or
+            node["head_label"] == head_label)
 
 def force_name_to_head_expr(node):
     if not check_multi_xexpr(node):
@@ -150,7 +150,7 @@ class Checker:
 
 class ToBeXExpr(Checker):
     def __init__(self,
-                 head_name=None,
+                 head_label=None,
                  head_xexpr=None,
                  sargs=None,
                  kargs=None,
@@ -166,7 +166,7 @@ class ToBeXExpr(Checker):
 
         TypeCheck --
         '''
-        self.head_name = head_name
+        self.head_label = head_label
         self.head_xexpr = head_xexpr
         self.sargs = sargs
         self.kargs = kargs
@@ -184,11 +184,11 @@ class ToBeXExpr(Checker):
         err_obj = CheckErrorObject()
         success = True
 
-        if head_name == True:
-            if not lisn["multi_flag"]:
+        if self.head_label == True:
+            if not lisn["has_head_label"]:
                 err_obj.add("head label should be specified" , )
-            result["head_name"] = lisn["head_name"]
-        elif head_name == False:
+            result["head_label"] = lisn["head_label"]
+        elif self.head_label == False:
             pass
         else:
             raise TypeError
@@ -1964,19 +1964,19 @@ def nt_xexpr(translator, lisn, comp_env, premise, config, context):
     # 2. lookahead name part to check if name is expander/converter
     # 3. lastly treat label as just function
 
-    if lisn["multi_flag"]:
-        head_name = lisn["head_name"]
-        if head_name == "def":
+    if lisn["has_head_label"]:
+        head_label = lisn["head_label"]
+        if head_label == "def":
             return translate_def(translator, lisn, comp_env, Premise(False), config, context)
-        elif head_name == "import":
+        elif head_label == "import":
             return translate_import(translator, lisn, comp_env, Premise(False), config, context)
-        elif head_name == "import_from":
+        elif head_label == "import_from":
             return translate_import_from(translator, lisn, comp_env, Premise(False), config, context)
         else:
             set_comp_error(context,
                            CompErrorObject(
                                "UnknownHeadLabel",
-                               "Unknown head label: %s"%head_name,
+                               "Unknown head label: %s"%head_label,
                                "<source>",
                                lisn["locinfo"]))
             return error_conclusion()
@@ -2005,7 +2005,7 @@ def nt_xexpr(translator, lisn, comp_env, premise, config, context):
                 return info.convert(translator, lisn, comp_env, premise, config, context)
 
         # function-style xexpr
-        if lisn["vert_flag"]:
+        if lisn["has_vert_suite"]:
             set_comp_error(context,
                            CompErrorObject(
                                "IllegalCall",
@@ -2118,7 +2118,7 @@ def translate_branch(translator, lisn, comp_env, premise, config, context):
     def set_arity_mismatch(dest_lisn, msg):
         set_branch_error(dest_lisn, msg)
 
-    if not lisn["vert_flag"]:
+    if not lisn["has_vert_suite"]:
        set_branch_error(lisn, "Invalid form")
        return error_conclusion()
 
@@ -2324,7 +2324,7 @@ def translate_def(translator, lisn, comp_env, premise, config, context):
         Return - 
             PyDefun
         '''
-        if def_xexpr["vert_flag"]:
+        if def_xexpr["has_vert_suite"]:
             def_stmts = []
             suite = def_xexpr["vert_suite"]
             concl = translator(suite, comp_env, Premise(True), config, context)
@@ -2421,7 +2421,7 @@ def translate_def(translator, lisn, comp_env, premise, config, context):
         return stmt_conclusion(preseq_stmts + [defun])
 
 def translate_let(translator, lisn, comp_env, premise, config, context):
-    if lisn["vert_flag"]:
+    if lisn["has_vert_suite"]:
         args = lisn["args"]
         # TODO: syntax checking ( keyword duplication, prohbiting star&dstar argument)
         kargs = args["kargs"]
@@ -2460,7 +2460,7 @@ def translate_let(translator, lisn, comp_env, premise, config, context):
 
 
 def translate_seq(translator, lisn, comp_env, premise, config, context):
-    if lisn["vert_flag"]:
+    if lisn["has_vert_suite"]:
         return translator(lisn["vert_suite"], comp_env, premise, config, context)
     else:
         return expr_conclusion(PyLiteral(None))

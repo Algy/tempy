@@ -166,8 +166,8 @@ typedef struct AST_Suite {
 
 
 /*
- * # mult_flag == 0
- * # vert_flag == 0
+ * # has_head_label == 0
+ * # has_vert_suite == 0
  * fun(a, b, c=1, ...)
  * 
  * fun>
@@ -175,8 +175,8 @@ typedef struct AST_Suite {
  *   b
  *   c -> 1
  * 
- * # mult_flag == 0
- * # vert_flag == 1
+ * # " == 0
+ * # " == 1
  * fun(a, b, c, d = 1, e = "aa", *f, **g, &h, &&i):
  *   expr1
  *   expr2
@@ -223,12 +223,12 @@ typedef struct AST_Suite {
  * #   expr2
  * #   ...
  *
- * # mult_flag == 1
- * # vert_flag == 0
+ * # " == 1
+ * # " == 0
  * import math
  *
- * # mult_flag == 1
- * # vert_flag == 1
+ * # " == 1
+ * # " == 1
  *
  * def aa(x, y, z):
  *   ...
@@ -240,10 +240,10 @@ typedef struct AST_Suite {
  */
 typedef struct {
     ASTHD hd;
-    int multi_flag;
-    int vert_flag;
+    int has_head_label;
+    int has_vert_suite;
 
-    ASTDS_String head_dstr;
+    ASTDS_String head_label;
     ASTHD *head_expr;
     ASTDS_Arguments args;
     ASTHD *vert_suite;
@@ -291,7 +291,7 @@ ASTHD* ast_suite_cons_arrow_del(AST_Arrow *arrow, ASTHD *dst);
 
 ASTHD* ast_xexpr_single(ASTHD *head_expr, ASTDS_Arguments argument,
                         ASTHD *vert_suite); 
-ASTHD* ast_xexpr_double(const char *head_name, ASTHD *head_expr, ASTDS_Arguments argument,
+ASTHD* ast_xexpr_double(const char *head_label_str, ASTHD *head_expr, ASTDS_Arguments argument,
                         ASTHD *vert_suite);
 
 void ast_xexpr_set_vert_suite(AST_XExpr *xexpr, AST_Suite *vert_suite);
