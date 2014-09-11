@@ -49,6 +49,8 @@ void dsstring_append(ASTDS_String *dstr, const char *src) {
     unsigned int src_len, len;
     if(dsstring_empty(dstr)) {
         *dstr = dsstring_from_str(src);
+    } else if (!(*src)) {
+        // PASS
     } else {
         src_len = strlen(src);
         len = dstr->len;

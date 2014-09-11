@@ -302,16 +302,16 @@ digit [0-9]
     return NAME;
 }
 
-"\""[^"]*"\"" {
+"\""[^"\r\n]*"\"" {
     TRACK_COL();
     return STRING;
 }
-"\'"[^']*"\'" {
+"\'"[^'\r\n]*"\'" {
     TRACK_COL();
     return STRING;
 }
 
-"\'\'\'"(.|\r?\n)*"\'\'\'" {
+"\'\'\'"((("\'"|"\'\'")?([^']|\r?\n))*(""|"\'"|"\'\'"))"\'\'\'" {
     // XXX: something wrong with tracking long string...
     // e.g '''aabb''' '''ccdd''' => String("aabb\'\'\' \'\'\'ccdd")
     char *p, *next;
@@ -336,7 +336,7 @@ digit [0-9]
 
     return LONGSTRING;
 }
-"\"\"\""(.|\r?\n)*"\"\"\"" {
+"\"\"\""((("\""|"\"\"")?([^"]|\r?\n))*(""|"\""|"\"\""))"\"\"\"" {
     char *p, *next;
     int n;
     p = strstr(yytext, "\n");
