@@ -21,6 +21,27 @@
     (yyextra)->ed_lineno = (yyextra)->lineno + (line); \
 }
 
+#define TRACK_MULTILINE() { \
+    char *p, *next; \
+    int n; \
+    p = strstr(yytext, "\n"); \
+    if(p) { \
+        n = 0; \
+        p++; \
+        while(1) { \
+            n++; \
+            next = strstr(p, "\n"); \
+            if(next) \
+                p = next + 1; \
+            else \
+                break; \
+        } \
+        TRACK_LINE_COL(n, strlen(p) + 1); \
+    } else { \
+        TRACK_COL(); \
+    } \
+}
+
 #include "lexer.h"
 #include "ast-make.h"
 
@@ -168,6 +189,8 @@ digit [0-9]
 
 {space}+ { TRACK_COL(); return YYNOTHING; }
 "#".*$  { TRACK_COL(); return YYNOTHING; } // inline-comment
+"#\|"("\|"[^#]|[^|])*"\|"?"\|#" { TRACK_MULTILINE(); return YYNOTHING; } /* multiline comment */
+
 
 <INITIAL>":"{space}*\r?\n {
     ADD_LINE();
@@ -312,50 +335,11 @@ digit [0-9]
 }
 
 "\'\'\'"((("\'"|"\'\'")?([^']|\r?\n))*(""|"\'"|"\'\'"))"\'\'\'" {
-    // XXX: something wrong with tracking long string...
-    // e.g '''aabb''' '''ccdd''' => String("aabb\'\'\' \'\'\'ccdd")
-    char *p, *next;
-    int n;
-    p = strstr(yytext, "\n");
-
-    if(p) {
-        n = 0;
-        p++;
-        while(1) {
-            n++;
-            next = strstr(p, "\n");
-            if(next)
-                p = next + 1;
-            else
-                break;
-        }
-        TRACK_LINE_COL(n, strlen(p) + 1);
-    } else {
-        TRACK_COL();
-    }
-
+    TRACK_MULTILINE();
     return LONGSTRING;
 }
 "\"\"\""((("\""|"\"\"")?([^"]|\r?\n))*(""|"\""|"\"\""))"\"\"\"" {
-    char *p, *next;
-    int n;
-    p = strstr(yytext, "\n");
-
-    if(p) {
-        n = 0;
-        p++;
-        while(1) {
-            n++;
-            next = strstr(p, "\n");
-            if(next)
-                p = next + 1;
-            else
-                break;
-        }
-        TRACK_LINE_COL(n, strlen(p) + 1);
-    } else {
-        TRACK_COL();
-    }
+    TRACK_MULTILINE();
     return LONGSTRING;
 }
 
