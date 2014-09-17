@@ -194,6 +194,27 @@ class XExprMatcher(LISNMatcher):
             return (False, None)
         return (True, result)
 
+
+def _convert_info_dict(info_dict):
+    print info_dict
+    if info_dict is None:
+        return ()
+    elif isinstance(info_dict, dict):
+        result = {}
+        for key, value in info_dict.items():
+            result[key] = _convert_info_dict(value)
+        return result
+    elif isinstance(info_dict, tuple):
+        p = info_dict
+        result = []
+        while p is not None:
+            result.append(_convert_info_dict(car(p)))
+            p = cdr(p)
+        return tuple(result)
+    else:
+        return info_dict
+
+
 class PosMatcher:
     def match_pos(self, lisn_list):
         # Wrapper function for _match_pos which use llist instead of list and additional formal arguments
@@ -202,7 +223,7 @@ class PosMatcher:
 
         success = self._match_pos(lisn_llist, None, info_dict)
         if success:
-            return (True, info_dict)
+            return (True, _convert_info_dict(info_dict))
         else:
             return (False, None)
         
