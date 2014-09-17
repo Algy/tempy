@@ -20,7 +20,6 @@ def _check_lisn_validity(lisn):
 
 class LISNVisitException(Exception): pass
 
-
 class _VisitorCollection:
     def __init__(self):
         self.visitors = {}
