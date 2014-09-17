@@ -109,6 +109,7 @@ space [ \t]
 letter [$a-zA-Z_]
 exletter [$a-zA-Z0-9_!?]
 digit [0-9]
+newline \r?\n
 
 %x NEWLINEPHASE
 %s BRACKETPHASE
@@ -133,8 +134,13 @@ digit [0-9]
     return YYEOF;
 }
 
-<NEWLINEPHASE>^{space}*\r?\n {
+<NEWLINEPHASE>{space}*{newline} {
     ADD_LINE();
+    return YYNOTHING;
+}
+
+<NEWLINEPHASE>{space}*"#".*{newline}? {
+    TRACK_MULTILINE();
     return YYNOTHING;
 }
 
@@ -181,30 +187,30 @@ digit [0-9]
 <BRACKETPHASE>\r?\n { ADD_LINE(); return YYNOTHING; }
 <BRACKETPHASE>{space}+ { TRACK_COL(); return YYNOTHING; }
 
-<INITIAL>\r?\n {
+<INITIAL>{newline} {
     BEGIN(NEWLINEPHASE);
     ADD_LINE();
     return NEWLINE;
 }
 
 {space}+ { TRACK_COL(); return YYNOTHING; }
-"#".*$  { TRACK_COL(); return YYNOTHING; } // inline-comment
+"#".*  { TRACK_COL(); return YYNOTHING; } // inline-comment
 "#\|"("\|"[^#]|[^|])*"\|"?"\|#" { TRACK_MULTILINE(); return YYNOTHING; } /* multiline comment */
 
 
-<INITIAL>":"{space}*\r?\n {
+<INITIAL>":"{space}*{newline} {
     ADD_LINE();
     BEGIN(NEWLINEPHASE); 
     return COLUMN_NEWLINE;
 }
 
-<INITIAL>">"{space}*\r?\n {
+<INITIAL>">"{space}*{newline} {
     ADD_LINE();
     BEGIN(NEWLINEPHASE); 
     return GT_NEWLINE;
 }
 
-<INITIAL>"--"{space}*\r?\n {
+<INITIAL>"--"{space}*{newline} {
     ADD_LINE(); 
     BEGIN(NEWLINEPHASE);
     return DMINUS_NEWLINE;
@@ -239,16 +245,7 @@ digit [0-9]
 "!=" {TRACK_COL(); return NEQ;}
 
 <INITIAL>"\\"\r?\n{space}* {
-    int col;
-    char *p;
-    p = strstr(yytext, "\n");
-    if(p) {
-        p++;
-        col = strlen(p) + 1;
-    } else {
-        col = 1;
-    }
-    TRACK_LINE_COL(1, col);
+    TRACK_MULTILINE();
     return YYNOTHING;
 }
 
@@ -334,11 +331,11 @@ digit [0-9]
     return STRING;
 }
 
-"\'\'\'"((("\'"|"\'\'")?([^']|\r?\n))*(""|"\'"|"\'\'"))"\'\'\'" {
+"\'\'\'"((("\'"|"\'\'")?[^'])*(""|"\'"|"\'\'"))"\'\'\'" {
     TRACK_MULTILINE();
     return LONGSTRING;
 }
-"\"\"\""((("\""|"\"\"")?([^"]|\r?\n))*(""|"\""|"\"\""))"\"\"\"" {
+"\"\"\""((("\""|"\"\"")?[^"])*(""|"\""|"\"\""))"\"\"\"" {
     TRACK_MULTILINE();
     return LONGSTRING;
 }
