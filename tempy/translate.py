@@ -1,6 +1,7 @@
-from tag import HTML_TAGS
+from tag import is_tag_name, HTML_TAGS
 from lisn import loads, loads_file
 from lisn.utils import LISNVisitor
+from lisn.match import LISNPattern
 from functools import wraps
 from copy import copy
 from pprint import pprint
@@ -121,112 +122,6 @@ def force_one_parg(xexpr):
             return pargs[0]
         else:
             return None
-
-
-'''
-XExpr Checkers
-'''
-
-class CheckErrorObject:
-    def __init__(self, msg_loc_pairs=None):
-        self.msg_loc_pairs = list(msg_loc_pairs) or []
-
-    def merge(self, other):
-        self.msg_loc_pairs += other.msg_loc_pairs
-
-    def add(self, msg, loc):
-        self.msg_loc_pairs.append((msg, loc))
-
-    def error_occured(self):
-        return len(self.msg_loc_pairs) > 0
-
-def is_check_error(obj):
-    return isinstance(obj, CheckErrorObject)
-
-class Checker:
-    # interface
-    def check(self, lisn):
-        raise NotImplementedError
-
-class ToBeXExpr(Checker):
-    def __init__(self,
-                 head_label=None,
-                 head_xexpr=None,
-                 pargs=None,
-                 kargs=None,
-                 star=None,
-                 dstar=None,
-                 amp=None,
-                 damp=None,
-                 common_vert=None,
-                 svert=None,
-                 kvert=None):
-        '''
-        pargs, kargs: None | ToBeListOf
-
-        TypeCheck --
-        '''
-        self.head_label = head_label
-        self.head_xexpr = head_xexpr
-        self.pargs = pargs
-        self.kargs = kargs
-        self.star = star
-        self.dstar = dstar
-        self.amp = amp
-        self.damp = damp
-        self.common_vert = common_vert
-        self.svert = svert
-        self.kvert = kvert
-
-
-    def check(self, lisn):
-        result = {}
-        err_obj = CheckErrorObject()
-        success = True
-
-        if self.head_label == True:
-            if not lisn["has_head_label"]:
-                err_obj.add("head label should be specified" , )
-            result["head_label"] = lisn["head_label"]
-        elif self.head_label == False:
-            pass
-        else:
-            raise TypeError
-
-        if success:
-            return result
-        else:
-            return err_obj
-
-class ToBeName(Checker):
-    def check(self, lisn):
-        if lisn["type"] != "name":
-            return CheckErrorObject([("name expected", lisn["locinfo"])])
-        return lisn["name"]
-
-class ToBeListOf(Checker): 
-    def __init__(self, elem_type, begin=None, end=None):
-        self.elem_type = elem_type
-        self.begin = None
-        self.end = None
-
-
-def check_lisn_format(context, lisn, checker):
-    '''
-    CheckFormat ::=  None => Don't care
-                   | True => should exist
-                   | False => should not exist
-                   | TypeChecker
-
-    TypeChecker ::=   LISNType("name", "xexpr", ...)
-                    | TypeChecker "|" TypeChecker
-
-    Returns -
-        {
-        }
-
-        None
-    '''
 
 '''
 MetaID conversion rule
@@ -392,19 +287,23 @@ def meta_convert_stmt_list(stmt_list, driver, local_dict):
 
 class PyForStmt(PyStmt):
     def __init__(self, elem_name, _in, stmt_list):
+# elem_name can be either string or PyTupleExpr
+        assert isinstance(elem_name, (str, PyMetaID, PyTupleExpr))
         self.elem_name = elem_name
         self._in = _in
         self.stmt_list = stmt_list
 
     def to_string(self, indent, acc_indent):
+        if isinstance(self.elem_name, PyExpr):
+            elem_name = self.elem_name.to_string()
         return " "*acc_indent + \
                "for {0} in {1}:\n{2}"\
-                 .format(self.elem_name, 
+                 .format(elem_name, 
                          self._in.to_string(),
                          stmt_list_to_string(self.stmt_list, indent, acc_indent))
 
     def convert_meta_id(self, driver, local_dict):
-        if isinstance(self.elem_name, PyMetaID):
+        if isinstance(self.elem_name, PyExpr):
             self.elem_name = self.elem_name.convert_meta_id(driver, local_dict)
         self._in = self._in.convert_meta_id(driver, local_dict)
         meta_convert_stmt_list(self.stmt_list, driver, local_dict)
@@ -614,6 +513,67 @@ class PyExpr:
 
     def convert_meta_id(self, driver, local_dict):
         raise NotImplementedError
+
+class PyDataReprExpr(PyExpr):
+    def get_expr_pred(self):
+        return 1
+    
+
+class PyTupleExpr(PyDataReprExpr):
+    def __init__(self, exprs):
+        self.exprs = exprs
+
+    def may_have_side_effect(self):
+        return any((expr.may_have_side_effect() for expr in self.exprs))
+
+    def to_string(self):
+        if len(self.exprs) == 1:
+            return "(" + self.exprs[0].to_string + ", )"
+        else:
+            return "(" + \
+                   ", ".join([expr.to_string() for expr in self.exprs]) + \
+                   ")"
+
+    def convert_meta_id(self, driver, local_dict):
+        return PyTupleExpr([elem.convert_meta_id(driver, local_dict)
+                            for elem in self.exprs])
+
+class PyListExpr(PyDataReprExpr):
+    def __init__(self, exprs):
+        self.exprs = exprs
+
+    def may_have_side_effect(self):
+        return any((expr.may_have_side_effect() for expr in self.exprs))
+
+    def to_string(self):
+        return "[" + \
+               ", ".join([expr.to_string() for expr in self.exprs]) + \
+               "]"
+
+    def convert_meta_id(self, driver, local_dict):
+        return PyListExpr([elem.convert_meta_id(driver, local_dict)
+                           for elem in self.exprs])
+
+
+class PyDictExpr(PyDataReprExpr):
+    def __init__(self, expr_dict):
+        self.expr_dict = expr_dict
+
+    def may_have_side_effect(self):
+        return any((k.may_have_side_effect() or v.may_have_side_effect()
+                    for k, v in self.expr_dict.items()))
+
+    def to_string(self):
+        return "{" + \
+               ", ".join(("%s: %s"%(k.to_string(), v.to_string())
+                         for k, v in self.expr_dict.items())) + \
+               "}"
+
+    def convert_meta_id(self, driver, local_dict):
+        return PyDictExpr(
+                dict([(k.convert_meta_id(driver, local_dict),
+                       v.convert_meta_id(driver, local_dict))
+                      for k, v in self.expr_dict.items()]))
 
 
 class PyOperatorExpr(PyExpr):
@@ -1443,6 +1403,10 @@ class Conclusion:
 
     def is_pure_expr(self):
         return len(self.preseq_stmts) == 0
+    
+    def make_stmt_list(self):
+        if self.has_result() and self.result_expr.may_have_side_effect():
+            return self.preseq_stmts + [PyExprStmt(self.result_expr)]
 
 
 
@@ -1535,8 +1499,8 @@ def make_integrator(allow_None):
                     preseq_stmts.extend(a.preseq_stmts)
                     return result_expr
                 else:
-                    preseq_stmts.extend(a.prseq_stmts)
-                    result_id = comp_env.issue_local_immidiate()
+                    preseq_stmts.extend(a.preseq_stmts)
+                    result_id = comp_env.issue_local_immediate()
                     preseq_stmts.extend(stmtify_expr(result_expr, True, result_id))
                     return PyMetaID(result_id)
             elif a is None:
@@ -1632,6 +1596,10 @@ class Context:
 def set_comp_error(context, error_obj):
     context.add_error(error_obj)
 
+
+#
+# Translators
+#
 
 node_translator = LISNVisitor()
 def stmtify_expr(expr, use_return_value, imd_id):
@@ -2045,6 +2013,36 @@ def nt_xexpr(translator, lisn, comp_env, premise, config, context):
                                     star_concl,
                                     dstar_concl)
 
+@LISNPattern
+def branch_pat(case, default):
+    '''
+    Returns -
+        (success, failure_reason, cond_pairs, else_pair_or_None)
+    '''
+
+    @case
+    def f(obj):
+        '''
+        if>
+            __kleene_plus__(predicates): $expr
+        --
+            __kleene_plus__(consequents): $expr
+        '''
+        predicates = [d["expr"] for d in obj["predicates"]]
+        consequents = [d["expr"] for d in obj["consequents"]]
+        if len(predicates) == len(consequents):
+            return (True, "", zip(predicates, consequents), None)
+        elif len(predicates) + 1 == len(consequents):
+            return (True, "", zip(predicates, consequents[:-1]), consequents[-1])
+        else:
+            conseq_cnt = len(consequents)
+            return (False, "Number of predicates is expected to be %d or %d" % (conseq_cnt - 1, conseq_cnt),
+                    [], None)
+
+    @default
+    def el():
+        return (False, "Bad Form", [], None)
+
 
 def translate_branch(translator, lisn, comp_env, premise, config, context):
     use_return_value = premise.use_return_value
@@ -2064,7 +2062,7 @@ def translate_branch(translator, lisn, comp_env, premise, config, context):
                concl.result_expr.may_have_side_effect():
                 return stmtify_expr(concl.result_expr, False, None)
             else:
-                return concl.prseq_stmts + \
+                return concl.preseq_stmts + \
                        stmtify_expr(concl.result_expr, False, None)
         else:
             return concl.preseq_stmts
@@ -2076,139 +2074,88 @@ def translate_branch(translator, lisn, comp_env, premise, config, context):
                                        "<source>",
                                        lisn["locinfo"]))
 
-    def convert_branch(if_cond_concl, if_suite_concl,
-                       elif_cond_concls, elif_suite_concls,
-                       else_suite_concl=None):
-        assert len(elif_cond_concls) == len(elif_suite_concls)
-
-
-        result_stmts = if_cond_concl.preseq_stmts[:]
-        if_stmt = PyIfStmt((if_cond_concl.result_expr,
-                            conclusion_to_stmts(if_suite_concl)))
-        iter_if_stmt = if_stmt
-        for elif_cond_concl, elif_suite_concl in \
-                zip(elif_cond_concls, elif_suite_concls):
-
-            if elif_cond_concl.is_pure_expr():
-                iter_if_stmt.elif_pairs.append(
-                    (elif_cond_concl.result_expr, 
-                     conclusion_to_stmts(elif_suite_concl)))
-            else:
-                cond_id = comp_env.issue_local_immediate()
-                iter_if_stmt.else_stmt_list += elif_cond_concl.preseq_stmts
-                nested_if_stmt = PyIfStmt((
-                    elif_cond_concl.result_expr,
-                    conclusion_to_stmts(elif_suite_concl)))
-                iter_if_stmt = nested_if_stmt
-
-        if use_return_value and else_suite_concl is None:
-            else_suite_concl = expr_conclusion(PyLiteral(None))
-        if else_suite_concl is not None:
-            iter_if_stmt.else_stmt_list = conclusion_to_stmts(else_suite_concl)
-        result_stmts.append(if_stmt)
-
-        if use_return_value:
-            return stmt_result_conclusion(result_stmts,
-                                          PyMetaID(result_id))
-        else:
-            return stmt_conclusion(result_stmts)
-    def set_invalid_predicate(dest_lisn):
-        set_branch_error(dest_lisn, "Invalid predicate")
-
-    def set_arity_mismatch(dest_lisn, msg):
-        set_branch_error(dest_lisn, msg)
-
-    if not lisn["has_vert_suite"]:
-       set_branch_error(lisn, "Invalid form")
-       return error_conclusion()
-
-    success = True
-    arg_info = lisn["arg_info"]
-    vert_suite = lisn["vert_suite"]
-
-    res_list = [obj["param"]
-                  for obj in vert_suite["exprs"]
-                  if not obj["is_arrow"]]
-    tagged_res_list = [(obj["arrow_lstring"], obj["param"])
-                       for obj in vert_suite["exprs"]
-                       if obj["is_arrow"]]
-
-    pred_list = arg_info["pargs"]
-    tagged_pred_list = arg_info["kargs"]
-    if tagged_pred_list:
-        set_invalid_predicate(tagged_pred_list[0][1])
-        success = False
-
-    if tagged_res_list:
-        set_invalid_predicate(tagged_res_list[0][1])
-        success = False
-
-    if arg_info["has_star"]:
-        set_invalid_predicate(arg_info["star"])
-        success = False
-    if arg_info["has_dstar"]:
-        set_invalid_predicate(arg_info["dstar"])
-        success = False
-
-    if arg_info["has_amp"]:
-        set_invalid_predicate(arg_info["amp"])
-        success = False
-
-    if arg_info["has_damp"]:
-        set_invalid_predicate(arg_info["damp"])
-        success = False
-
+    success, error_reason, cond_pairs, else_lisn = branch_pat(lisn)
     if not success:
+        set_branch_error(lisn, error_reason)
         return error_conclusion()
     
-    pred_cnt = len(pred_list)
-    res_cnt = len(res_list)
+    preseq_stmts = []
+    first = True
+    success = True
 
-    pred_concls = [translator(pred, comp_env, premise.copy(), config, context)
-                   for pred in pred_list]
-    res_concls = [translator(res, comp_env, premise.copy(), config, context)
-                  for res in res_list]
+    if_stmt = PyIfStmt(None)
+    iter_if_stmt = if_stmt
+    for pred, conseq in cond_pairs:
+        cur_success = True
+        pred_concl = translator(pred, 
+                          comp_env, 
+                          Premise(True), 
+                          config, 
+                          context)
+        conseq_concl = translator(conseq, 
+                                  comp_env, 
+                                  premise.copy(), 
+                                  config, 
+                                  context)
 
-    if any([concl.error_occured() for concl in pred_concls]) or \
-       any([concl.error_occured() for concl in res_concls]):
-        return error_conclusion()
-
-    if pred_cnt == 0:
-        set_arity_mismatch(lisn, "Predicate Expected");
-        success = False
-    else:
-        if pred_cnt == res_cnt:
-            if_pred_concl = pred_concls[0]
-            if_res_concl = res_concls[0]
-            elif_pred_concls = pred_concls[1:]
-            elif_res_concls = res_concls[1:]
-            else_res_concl = None
-        elif pred_cnt == res_cnt - 1:
-            if_pred_concl = pred_concls[0]
-            if_res_concl = res_concls[0]
-            elif_pred_concls = pred_concls[1:]
-            elif_res_concls = res_concls[1:-1]
-            else_res_concl = res_concls[-1]
-        else:
-            set_arity_mismatch(pred_list[0], "Number of predicates is expected to be %d or %d" % (res_cnt - 1, res_cnt));
+        if pred_concl.error_occured():
             success = False
+            cur_success = False
+        elif conseq_concl.error_occured():
+            success = False
+            cur_success = False
+
+        if cur_success:
+            if iter_if_stmt.if_pair is None:
+                preseq_stmts.extend(pred_concl.preseq_stmts)
+                iter_if_stmt.if_pair = (pred_concl.result_expr,
+                                        conclusion_to_stmts(conseq_concl))
+            else:
+                if pred_concl.is_pure_expr():
+                    iter_if_stmt.elif_pairs.append(
+                        (pred_concl.result_expr,
+                         conclusion_to_stmts(conseq_concl)))
+                else:
+                    iter_if_stmt.else_stmt_list.extend(pred_concl.preseq_stmts)
+                    nested_if_stmt = PyIfStmt((
+                        pred_concl.result_expr,
+                        conclusion_to_stmts(conseq_concl)))
+                    iter_if_stmt.else_stmt_list.append(nested_if_stmt)
+                    iter_if_stmt = nested_if_stmt
+
+
+    if else_lisn:
+        else_concl = translator(else_lisn,
+                                comp_env,
+                                premise.copy(), 
+                                config,
+                                context)
+        if else_concl.error_occured():
+            success = False
+    else:
+        else_concl = expr_conclusion(PyLiteral(None))
+
+    iter_if_stmt.else_stmt_list = conclusion_to_stmts(else_concl)
 
     if not success:
         return error_conclusion()
-    return convert_branch(if_pred_concl, if_res_concl,
-                          elif_pred_concls, elif_res_concls,
-                          else_res_concl)
+
+    preseq_stmts.append(if_stmt)
+    if use_return_value:
+        return stmt_result_conclusion(preseq_stmts,
+                                      PyMetaID(result_id))
+    else:
+        return stmt_conclusion(preseq_stmts)
     
 
 def is_def_node(node):
     return check_multi_xexpr(node, "def")
 
 
-def translate_suite(translator, suite, comp_env, premise, config, context):
+def xtranslate_seq(translator, node_list, comp_env, premise, config, context):
     use_return_value = premise.use_return_value
     success = True
     concls = []
-    node_list = suite_to_node_list(suite)
     if node_list:
         last_node = node_list[-1]
         for node in node_list:
@@ -2220,7 +2167,7 @@ def translate_suite(translator, suite, comp_env, premise, config, context):
                                    CompErrorObject("DefName",
                                                    "Name of def node is not appropriate",
                                                    "<source>",
-                                                   suite["head_expr"]["locinfo"]))
+                                                   node["locinfo"]))
                     success = False
                 else:
                     function_id = ensure_function_name(comp_env, def_name)
@@ -2253,7 +2200,34 @@ def translate_suite(translator, suite, comp_env, premise, config, context):
         else:
             return stmt_conclusion(PyPass())
 
+def ltranslate_in_app_order(translator, node_list, comp_env, premise, config, context):
+    '''
+    Returns -
+        (success,
+         Pre-sequential stmts, 
+         list of expr )
 
+    '''
+    preseq_stmts = []
+    result_exprs = []
+    success = True
+    for node in node_list:
+        concl = translator(node, comp_env, Premise(True), config, context)
+        if concl.error_occured():
+            success = False
+            continue
+        preseq_stmts.extend(concl.preseq_stmts)
+        if concl.has_result() and concl.result_expr.may_have_side_effect():
+            imd_id = comp_env.issue_local_immediate()
+            preseq_stmts.append(PyAssignmentToName(PyMetaID(imd_id), concl.result_expr))
+            result_exprs.append(PyMetaID(imd_id))
+        else:
+            result_exprs.append(concl.result_expr)
+    return (success, preseq_stmts, result_exprs)
+
+def translate_suite(translator, suite, comp_env, premise, config, context):
+    node_list = suite_to_node_list(suite)
+    return xtranslate_seq(translator, node_list, comp_env, premise, config, context )
 
 def translate_def(translator, lisn, comp_env, premise, config, context):
     assert is_def_node(lisn)
@@ -2465,20 +2439,270 @@ def translate_seq(translator, lisn, comp_env, premise, config, context):
     else:
         return expr_conclusion(PyLiteral(None))
 
+@LISNPattern
+def lambda_pat(case, default):
+    '''
+    (success, failure_reason, parg, karg, star, dstar, body)
+    '''
+
+    @case
+    def lam(obj):
+        '''
+        lambda>
+            kleene_star(parg): NAME$name
+            keyword -> dict(karg)
+            *__optional__(star): NAME$name
+            **__optional__(dstar): NAME$name
+        --
+            __kleene_plus__(body): $expr
+        '''
+        parg = [x["name"] for x in obj["parg"]]
+        karg = obj["karg"]["__rest__"]
+        star = obj["star"]["name"] if obj["star"] else None
+        dstar = obj["dstar"]["name"] if obj["dstar"] else None
+        body = [x["expr"] for x in obj["body"]]
+
+        return (True, "", parg, karg, star, dstar, body)
+
+    @default
+    def el():
+        return (False, "Bad form", None, None, None, None, [])
+
 
 def translate_lambda(translator, lisn, comp_env, premise, config, context):
     # pure expr -> use function
     # expr with pre-sequential stmts -> def
-    pass
-
-def translate_for(translator, lisn, comp_env, premise, config, context):
     # TODO
     pass
-    
+
+
+@LISNPattern
+def for_pat(case, default):
+    @case
+    def fr(obj):
+        '''
+        NAME$for>
+            NAME$elem
+            keyword -> seq:
+                __optional__(opt):
+                    index -> NAME$index_name
+                in -> $iterable
+        --
+            __kleene_plus__(body): $expr
+        '''
+        elem = obj["elem"]
+        iterable = obj["iterable"]
+        index = obj["opt"]["index_name"] if obj["opt"] else None
+        body = [x["expr"] for x in obj["body"]]
+
+        return (True, "", elem, index, iterable, body)
+
+    @case
+    def fr2(obj):
+        '''
+        NAME$for>
+            pair>
+                __kleene_plus__(elems): $elem
+            keyword -> seq:
+                __optional__(opt):
+                    index -> NAME$index_name
+                in -> $iterable
+        --
+            __kleene_plus__(body): $expr
+        '''
+        raise Exception
+        elem = [s["elem"] for s in obj["elems"]]
+        iterable = obj["iterable"]
+        index = obj["opt"]["index_name"] if obj["opt"] else None
+        body = [x["expr"] for x in obj["body"]]
+
+        return (True, "", elem, index, iterable, body)
+
+
+    @default
+    def el():
+        return (False, "Bad form", None, None, None, None)
 
 
 
 
+def _translate_iter_head(translator, lisn, comp_env, premise, config, context,
+                         body_kont, error_handler):
+    success, failure_reason, elem, index, iterable, body = for_pat(lisn)
+
+    if not success:
+        error_handler(failure_reason)
+        return error_conclusion()
+
+    enumerate_id, _ = comp_env.lookup_global_name("enumerate")
+
+    iterable_concl = translator(iterable, comp_env, Premise(True), config, context)
+    preseq_stmts = iterable_concl.preseq_stmts
+    iterable_expr = iterable_concl.result_expr 
+
+    elem_obj = None
+    index_id = None
+    if isinstance(elem, tuple):
+        elem_ids = [PyMetaID(ensure_local_var_name(comp_env, x))
+                    for x in elem]
+        if index is not None:
+            index_id = ensure_local_var_name(comp_env, index)
+            elem_ids.insert(0, PyMetaID(index_id))
+            iterable_expr = PyCall(PyMetaID(enumerate_id), [iterable_expr], None)
+        elem_obj = PyTupleExpr(elem_ids)
+    else:
+        elem_id = ensure_local_var_name(comp_env, elem)
+        if index is not None:
+            index_id = ensure_local_var_name(comp_env, index)
+            elem_obj = PyTupleExpr([PyMetaID(index_id), PyMetaID(elem_id)])
+            iterable_expr = PyCall(PyMetaID(enumerate_id), [iterable_expr], None)
+        else:
+            elem_obj = PyMetaID(elem_id)
+
+    return body_kont(preseq_stmts, elem_obj, iterable_expr, body)
+
+
+
+def translate_for(translator, lisn, comp_env, premise, config, context):
+    use_return_value = premise.use_return_value
+    if use_return_value:
+        result_id = comp_env.issue_local_immediate()
+    else:
+        result_id = None
+
+    def kont(head_preseq_stmts, elem_obj, iterable_expr, body):
+        body_concl = xtranslate_seq(translator,
+                                    body,
+                                    comp_env,
+                                    premise.copy(),
+                                    config,
+                                    context)
+        stmts = head_preseq_stmts
+        body_stmts = body_concl.preseq_stmts
+        body_result_expr = body_concl.result_expr
+        if use_return_value:
+            body_stmts.append(PyExprStmt(PyCall(PyAttrAccess(PyMetaID(result_id), "append"),
+                                                [body_result_expr],
+                                                None)))
+        stmts.append(PyForStmt(elem_obj, iterable_expr, body_stmts))
+                                
+        if use_return_value:
+            stmts.insert(0, PyAssignmentToName(PyMetaID(result_id), PyLiteral([])))
+            return stmt_result_conclusion(stmts, PyMetaID(result_id))
+        else:
+            return stmt_conclusion(stmts)
+
+    def error_handler(reason):
+        set_comp_error(context,
+                       CompErrorObject("for",
+                                       reason,
+                                       "<source>",
+                                       lisn["locinfo"]))
+
+    return _translate_iter_head(translator, lisn, comp_env, premise.copy(), config, context,
+                                kont, error_handler)
+
+
+def translate_each(translator, lisn, comp_env, premise, config, context):
+    use_return_value = premise.use_return_value
+    if use_return_value:
+        result_id = comp_env.issue_local_immediate()
+    else:
+        result_id = None
+
+    def kont(head_preseq_stmts, elem_obj, iterable_expr, body):
+        success, body_stmts, result_exprs = ltranslate_in_app_order(translator,
+                                                                    body,
+                                                                    comp_env,
+                                                                    Premise(True),
+                                                                    config,
+                                                                    context)
+        if not success:
+            return error_conclusion()
+
+        stmts = head_preseq_stmts
+        if use_return_value:
+            body_stmts.append(PyExprStmt(PyCall(PyAttrAccess(PyMetaID(result_id), "extend"),
+                                                [PyListExpr(result_exprs)],
+                                                None)))
+
+        stmts.append(PyForStmt(elem_obj,
+                               iterable_expr, 
+                               body_stmts))
+                                
+        if use_return_value:
+            stmts.insert(0, PyAssignmentToName(PyMetaID(result_id), PyLiteral([])))
+            return stmt_result_conclusion(stmts, PyMetaID(result_id))
+        else:
+            return stmt_conclusion(stmts)
+
+    def error_handler(reason):
+        set_comp_error(context,
+                       CompErrorObject("each",
+                                       reason,
+                                       "<source>",
+                                       lisn["locinfo"]))
+
+    return _translate_iter_head(translator, lisn, comp_env, premise.copy(), config, context,
+                                kont, error_handler)
+
+
+@LISNPattern
+def html_node_pat(case, default):
+    @case
+    def cond(obj):
+        '''
+        NAME$html_node>
+            keyword -> dict(attr)
+        --
+            __kleene_star__(body): $expr
+        '''
+        tag_name = obj["html_node"]
+        attr = obj["attr"]["__rest__"]
+        body = [x["expr"] for x in obj["body"]]
+        return (True, "", tag_name, attr, body)
+
+    @default
+    def el():
+        return (False, "Bad Form", None, None, None)
+
+
+def translate_html_node(translator, lisn, comp_env, premise, config, context):
+    runtime_id = context.runtime_obj_id
+    success, failure_reason, tag_name, attr, body = html_node_pat(lisn)
+
+    if not success:
+        set_comp_error(context,
+                       CompErrorObject("HtmlNode",
+                                       failure_reason,
+                                       "<source>",
+                                       lisn["locinfo"]))
+        return error_conclusion()
+
+    attr_pairs = attr.items()
+    attr_keys = [k for k, _ in attr_pairs]
+    success, stmts, param_exprs = \
+        ltranslate_in_app_order(translator,
+                                [v for _, v in attr_pairs] + body,
+                                comp_env,
+                                Premise(True),
+                                config,
+                                context)
+    attr_exprs = param_exprs[:len(attr_pairs)]
+    body_exprs = param_exprs[len(attr_pairs):]
+
+
+    caller_pargs = [PyDictExpr(dict(zip(map(PyLiteral, attr_keys), attr_exprs)))]
+    caller_pargs.extend(body_exprs)
+
+    mk = PyCall(PyAttrAccess(PyAttrAccess(PyMetaID(runtime_id),
+                                          "html"),
+                             tag_name),
+                caller_pargs,
+                None)
+    return stmt_result_conclusion(stmts, mk)
+
+        
 def translate_import(translator, lisn, comp_env, premise, config, context):
     assert check_multi_xexpr(lisn, "import")
 
@@ -2581,15 +2805,21 @@ def setup_base_syntax(comp_env):
     comp_env.add_global("let",
                         Converter(translate_let,
                                   "let"))
-
     comp_env.add_global("seq",
                         Converter(translate_seq,
                                   "seq"))
+    comp_env.add_global("for",
+                        Converter(translate_for,
+                                  "for"))
+    comp_env.add_global("each",
+                        Converter(translate_each,
+                                  "each"))
 
 def setup_html_runtime(comp_env):
-# TODO
-    pass
-                        
+    for tag_name in HTML_TAGS:
+        comp_env.add_global(tag_name,
+                            Converter(translate_html_node,
+                                      tag_name))
 
 _PYTHON_RESERVED_WORDS = set([
     'and',
@@ -2632,6 +2862,7 @@ def main_translate(suite, config=None):
     config = config or Config()
     comp_env = CompEnv()
     setup_base_syntax(comp_env)
+    setup_html_runtime(comp_env)
 
     comp_env.setup_local_frame("def")
 
@@ -2690,7 +2921,7 @@ def main_translate(suite, config=None):
                                      None,
                                      kw_arguments)))
     comp_env.contract_local_frame()
-    def_mk_tmp = PyDefun("__tempy__",
+    def_mk_tmp = PyDefun("tempy_main",
                          [PyMetaID(context.runtime_obj_id),
                           PyMetaID(context.importer_id),
                           PyMetaID(context.line_info_id)],

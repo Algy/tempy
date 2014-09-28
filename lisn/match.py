@@ -196,7 +196,6 @@ class XExprMatcher(LISNMatcher):
 
 
 def _convert_info_dict(info_dict):
-    print info_dict
     if info_dict is None:
         return ()
     elif isinstance(info_dict, dict):
@@ -677,11 +676,9 @@ def _compile_kw_matcher(kargs):
                 return KwDictStyleMatcher({}, group_name, group_name is None)
         elif head_name == "seq":
             if spec["has_vert_suite"]:
-                return KwSeqStyleMatcher(
-                        _compile_pos_matcher(_suite_to_list(spec["vert_suite"]),
-                                             None,
-                                             True),
-                        group_name)
+                node_list = _suite_to_list(spec["vert_suite"])
+                pos_matcher = _compile_pos_matcher(node_list, None, True)
+                return KwSeqStyleMatcher(pos_matcher, group_name)
             else:
                 return None
         else:
@@ -787,7 +784,7 @@ class LISNPattern:
             self.test_fun_pairs.append((matcher, fun))
 
         def default_case(fun):
-            self.defualt_case_fun = fun
+            self.default_case_fun = fun
 
         pattern_decl_fun(add_case, default_case)
 

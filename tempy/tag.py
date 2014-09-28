@@ -1,4 +1,3 @@
-
 HTML_TAGS = ['html',
          'head',
          'title',
@@ -127,7 +126,7 @@ class Tag:
         if tag_name not in _TAG_SET:
             raise ValueError("{0} is not appropriate HTML tag".format(tag_name))
         self.tag_name = tag_name
-        self.attr_dict = attr_dict
+        self.attr_dict = attr_dict or {}
         self.sub_tags = sub_tags
         self.void_tag = tag_name in _VOID_TAG_SET
         if self.void_tag and len(sub_tags) > 0:
@@ -176,3 +175,10 @@ class TagPool:
             return lambda *args, **kwds: Tag(tag_name, *args, **kwds)
         else:
             raise ValueError("{0} is not appropriate tag".format(tag_name))
+
+def is_tag_name(name, case_sensetive=False):
+    if case_sensetive:
+        return name in _TAG_SET
+    else:
+        return name.lower() in _TAG_SET 
+
