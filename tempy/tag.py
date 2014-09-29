@@ -1,3 +1,5 @@
+from collections import Iterable
+
 HTML_TAGS = ['html',
          'head',
          'title',
@@ -119,6 +121,19 @@ def _escape_string(val):
     # TODO
     return val
 
+def flatten_tags(val):
+    result = []
+    def iterate(obj):
+        if obj is None:
+            pass
+        elif isinstance(obj, Iterable) and not isinstance(obj, basestring):
+            for elem in obj:
+                iterate(elem)
+        else:
+            result.append(obj)
+    iterate(val)
+    return result
+
 
 class Tag:
     def __init__(self, tag_name, attr_dict, *sub_tags):
@@ -127,10 +142,10 @@ class Tag:
             raise ValueError("{0} is not appropriate HTML tag".format(tag_name))
         self.tag_name = tag_name
         self.attr_dict = attr_dict or {}
-        self.sub_tags = sub_tags
+        self.sub_tags = flatten_tags(sub_tags)
         self.void_tag = tag_name in _VOID_TAG_SET
         if self.void_tag and len(sub_tags) > 0:
-            raise ValueError("{0} is void tag but having sub tags".format(tag_name))
+            raise ValueError("{0} is void tag, having sub tags though".format(tag_name))
 
     def __repr__(self):
         if len(self.sub_tags) == 0:

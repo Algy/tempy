@@ -1795,7 +1795,7 @@ def nt_name(translator, lisn, comp_env, premise, config, context):
         err_obj = CompErrorObject("IllegalName",
                                   repr(info) + " cannot be used as a variable",
                                   "<source>",
-                                  lisn.locinfo)
+                                  lisn["locinfo"])
         set_comp_error(context, err_obj)
         return error_conclusion()
     else:
@@ -2914,6 +2914,8 @@ def main_translate(suite, config=None):
     for local_name in comp_env.local_names():
         local_id, local_info = comp_env.lookup_name(local_name)
         if not local_info.is_var():
+            continue
+        elif local_name.startswith("_"):
             continue
         kw_arguments.append((local_name, PyMetaID(local_id)))
 
