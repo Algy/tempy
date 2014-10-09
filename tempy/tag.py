@@ -117,9 +117,58 @@ def _escape_attr_value(val):
     # TODO
     return val
 
+def _is_whitespace(s): 
+    return s == " " or s == "\t" or s == "\n"
+
 def _escape_string(val):
-    # TODO
-    return val
+    imd_str = val.replace("<", "&lt;")\
+                 .replace(">", "&gt;")\
+                 .replace("&", "&amp;")
+    result = imd_str
+    '''
+    imd_str_len = len(imd_str)
+    result = ""
+    idx = 0
+        
+    # consume succeeding whitespaces
+    while idx < imd_str_len and _is_whitespace(imd_str[idx]):
+        idx += 1
+
+    while idx < imd_str_len:
+        c = imd_str[idx]
+        if _is_whitespace(c):
+            if c == " ":
+                result += c
+                idx += 1
+
+                interspace = 0
+                while idx < imd_str_len and imd_str[idx] == " ":
+                    idx += 1
+                    interspace += 1
+
+                lookahead_idx = idx
+                # look stub ahead to check if all of trailing characters are whitespaces
+                while lookahead_idx < imd_str_len and \
+                      _is_whitespace(imd_str[lookahead_idx]):
+                    lookahead_idx += 1
+                
+                if lookahead_idx < imd_str_len:
+                    result += "&nbsp;" * interspace
+
+                if idx < imd_str_len:
+                    result += imd_str[idx:min(lookahead_idx, imd_str_len)]
+                idx = lookahead_idx
+            else:
+                result += c
+                idx += 1
+        else:
+            result += c
+            idx += 1
+            while idx < imd_str_len and not _is_whitespace(imd_str[idx]):
+                result += imd_str[idx]
+                idx += 1
+    '''
+    return result
 
 def flatten_tags(val):
     result = []

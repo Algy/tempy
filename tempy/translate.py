@@ -385,7 +385,7 @@ class PyImportStmt(PyStmt):
         self.name_or_name_list = name_or_name_list
 
     def to_string(self, indent, acc_indent):
-        return " "*acc_indent + "import " + dotify(self.name_or_name_list)+ "\n"
+        return " "*acc_indent + "import " + dotify(self.name_or_name_list) + "\n"
 
     def convert_meta_id(self, driver, local_dict):
         pass
@@ -396,9 +396,20 @@ class PyImportFromStmt(PyStmt):
         self.import_names = import_names
 
     def to_string(self, indent, acc_indent):
-        return " "*acc_indent + \
-               "from " + dotify(self.name_or_name_list) + \
-               "import " + ", ".join(self.import_names)
+        result = " "*acc_indent + \
+                 "from " + dotify(self.name_or_name_list) + \
+                 " import "
+
+        addhoc = ""
+        for name_or_pair in self.import_names:
+            if addhoc:
+                addhoc += ", "
+            if isinstance(name_or_pair, tuple):
+                src, dest = name_or_pair
+                addhoc += "%s as %s"%(src, dest)
+            else:
+                addhoc += name_or_pair
+        return result + addhoc + "\n"
 
     def convert_meta_id(self, driver, local_dict):
         pass
@@ -528,7 +539,7 @@ class PyTupleExpr(PyDataReprExpr):
 
     def to_string(self):
         if len(self.exprs) == 1:
-            return "(" + self.exprs[0].to_string + ", )"
+            return "(" + self.exprs[0].to_string() + ", )"
         else:
             return "(" + \
                    ", ".join([expr.to_string() for expr in self.exprs]) + \
@@ -1471,7 +1482,7 @@ def seq_conclusion(conclusions):
 def make_integrator(allow_None):
     def integrate_conclusion(comp_env, result_proc, *conclusions):
         '''
-        result_proc: A x A x A x .. -> PyExpr | (PyStmt | PyStmt list, None | PyExpr)
+        result_proc: A x A x A x .. -> PyExpr | ((PyStmt | PyStmt list), (None | PyExpr))
         '''
         preseq_stmts = []
         success_box = [True]
@@ -1940,6 +1951,10 @@ def nt_xexpr(translator, lisn, comp_env, premise, config, context):
             return translate_import(translator, lisn, comp_env, Premise(False), config, context)
         elif head_label == "import_from":
             return translate_import_from(translator, lisn, comp_env, Premise(False), config, context)
+        elif head_label == "pyimport":
+            return translate_pyimport(translator, lisn, comp_env, Premise(False), config, context)
+        elif head_label == "pyimport_from":
+            return translate_pyimport_from(translator, lisn, comp_env, Premise(False), config, context)
         else:
             set_comp_error(context,
                            CompErrorObject(
@@ -1972,15 +1987,7 @@ def nt_xexpr(translator, lisn, comp_env, premise, config, context):
             elif info.is_converter():
                 return info.convert(translator, lisn, comp_env, premise, config, context)
 
-        # function-style xexpr
-        if lisn["has_vert_suite"]:
-            set_comp_error(context,
-                           CompErrorObject(
-                               "IllegalCall",
-                               "Vertical Arguments should not be applied to function",
-                               "<source>",
-                               lisn["locinfo"]))
-            success = False
+
         applicant_concl = translator(head_expr, comp_env, Premise(True), config, context)
         parg_concls = [translator(parg, comp_env, Premise(True), config, context) for parg in arg_info["pargs"]]
         karg_keywords = [k for k, _ in arg_info["kargs"]]
@@ -1996,22 +2003,97 @@ def nt_xexpr(translator, lisn, comp_env, premise, config, context):
                                  config,
                                  context) if arg_info["has_dstar"] else None
 
+        amp_concl = translator(arg_info["amp"],
+                               comp_env,
+                               Premise(True),
+                               config,
+                               context) if arg_info["has_amp"] else None
+        damp_concl = translator(arg_info["damp"],
+                                 comp_env,
+                                 Premise(True),
+                                 config,
+                                 context) if arg_info["has_damp"] else None
+
+
+        # function-style xexpr
+
+        varg_concls = []
+        vattr_concls = []
+        vattr_keywords = []
+        if lisn["has_vert_suite"]:
+            for obj in lisn["vert_suite"]["exprs"]:
+                param = obj["param"]
+                concl = translator(param,
+                                   comp_env,
+                                   Premise(True),
+                                   config,
+                                   context)
+                if obj["is_arrow"]:
+                    label = obj["arrow_lstring"]
+                    vattr_keywords.append(label)
+                    vattr_concls.append(concl)
+                else:
+                    varg_concls.append(concl)
 
         if not success:
             return error_conclusion()
 
+        def integrator(callee_expr, parg_exprs, karg_exprs, star_expr, dstar_expr, 
+                       amp_expr, damp_expr, varg_exprs, vattr_exprs):
+            tuple_maker_id, _ = comp_env.lookup_global_name("tuple")
+            dict_maker_id, _ = comp_env.lookup_global_name("dict")
+
+            real_kargs = zip(karg_keywords, karg_exprs)
+            preseq_stmts = []
+
+            if amp_expr:
+                amp_tup = PyCall(PyMetaID(tuple_maker_id), [amp_expr], None)
+            if varg_exprs:
+                varg_tup = PyTupleExpr(varg_exprs)
+
+            if vattr_exprs:
+                vattr_dict = PyCall(PyMetaID(dict_maker_id), [], zip(vattr_keywords, vattr_exprs))
+
+            if amp_expr is None and varg_exprs:
+                real_kargs.append(("__varg__", varg_tup))
+            elif amp_expr is not None and not varg_exprs:
+                real_kargs.append(("__varg__", amp_tup))
+            elif amp_expr is not None and varg_exprs:
+                real_kargs.append(("__varg__",
+                                   PyBinop("+",
+                                           amp_tup,
+                                           varg_tup)))
+
+            if damp_expr is None and vattr_exprs:
+                real_kargs.append(("__vattr__", vattr_dict))
+            elif damp_expr is not None and not vattr_exprs:
+                real_kargs.append(("__vattr__", damp_expr))
+            elif damp_expr is not None and vattr_exprs:
+                imd_id = comp_env.issue_local_immediate()
+                preseq_stmts.append(PyAssignmentToName(PyMetaID(imd_id), damp_expr))
+                preseq_stmts.append(PyExprStmt(PyCall(PyAttrAccess(PyMetaID(imd_id),
+                                                                   "update"),
+                                                      [vattr_dict],
+                                                      None)))
+                real_kargs.append(("__vattr__", PyMetaID(imd_id)))
+
+            result_expr = PyCall(callee_expr,
+                                 parg_exprs, 
+                                 real_kargs,
+                                 star_expr,
+                                 dstar_expr)
+            return (preseq_stmts, result_expr)
         return xintegrate_conclusion(comp_env,
-                                    lambda callee_expr, parg_exprs, karg_exprs, star_expr, dstar_expr: \
-                                      PyCall(callee_expr,
-                                             parg_exprs, 
-                                             zip(karg_keywords, karg_exprs),
-                                             star_expr,
-                                             dstar_expr),
-                                    applicant_concl,
-                                    parg_concls,
-                                    karg_concls,
-                                    star_concl,
-                                    dstar_concl)
+                                     integrator,
+                                     applicant_concl,
+                                     parg_concls,
+                                     karg_concls,
+                                     star_concl,
+                                     dstar_concl,
+                                     amp_concl,
+                                     damp_concl,
+                                     varg_concls,
+                                     vattr_concls)
 
 @LISNPattern
 def branch_pat(case, default):
@@ -2147,6 +2229,40 @@ def translate_branch(translator, lisn, comp_env, premise, config, context):
     else:
         return stmt_conclusion(preseq_stmts)
     
+@LISNPattern
+def cond_case_pat(case, default):
+    '''
+    Returns -
+        (success, failure_reason, cond_pairs, else_pair_or_None)
+    '''
+
+    @case
+    def f(obj):
+        '''
+        cond:
+            __kleene_star__(cases):
+                case($case_expr):
+                    __kleene_plus__(case_body): $expr
+            __optional__(else_opt):
+                else:
+                    __kleene_plus__(else_body): $expr
+        '''
+        cases = [(case_obj["case_expr"],
+                  [d["expr"] for d in case_obj["case_body"]])
+                 for case_obj in obj["cases"]]
+
+        if obj["else_opt"]:
+            else_body = [d["expr"] for d in obj["else_opt"]["else_body"]]
+        else:
+            else_body = None
+
+        return (True, "", cases, else_body)
+
+
+    @default
+    def el():
+        return (False, "Bad Form", None, None)
+
 
 def is_def_node(node):
     return check_multi_xexpr(node, "def")
@@ -2724,6 +2840,75 @@ def translate_import(translator, lisn, comp_env, premise, config, context):
         assign = PyAssignmentToName(PyMetaID(module_id), accessor)
         return stmt_conclusion([assign])
 
+def set_error(context, lisn, _type, name):
+    set_comp_error(context, CompErrorObject(_type, name, "<source>", lisn["locinfo"]))
+
+def translate_pyimport(translator, lisn, comp_env, premise, config, context):
+    head_node = lisn["head_expr"]
+    names = force_dotted_name(head_node)
+    last_name = names[-1]
+    if names is None:
+        set_error(context, head_node, "IllegalPyImportName", "Not appropriate pyimport name")
+        return error_conclusion()
+
+    if lisn["has_vert_suite"]:
+        set_error(context, head_node, "IllegalPyImportForm", "No vertical body expected for pyimport")
+        return error_conclusion()
+
+
+    ids = []
+    preseq_stmts = []
+    for name in names:
+        ids.append(ensure_local_var_name(comp_env, name))
+
+    return stmt_result_conclusion([PyImportStmt(names)], PyLiteral(None))
+
+@LISNPattern
+def pyimport_from_pat(case, default):
+    @case
+    def c1(obj):
+        '''
+        pyimport_from $from:
+            __kleene_plus__(names):
+                __or__(opt):
+                    NAME$src_name
+                    NAME$src_name -> NAME$dest_name
+        '''
+        head = obj["from"]
+        names = force_dotted_name(head)
+
+        if names is None:
+            return (False, "Bad pyimport name", None, None)
+
+        imported_names = []
+        for x in obj["names"]:
+            import_obj = x["opt"]
+            if "dest_name" in import_obj:
+                imported_names.append((import_obj["src_name"], import_obj["dest_name"]))
+            else:
+                imported_names.append(import_obj["src_name"])
+        return (True, "", names, imported_names)
+    @default
+    def d():
+        return (False, "Bad form", None, None)
+
+
+def translate_pyimport_from(translator, lisn, comp_env, premise, config, context):
+    success, failure_reason, module_names, dest_name_or_pairs = pyimport_from_pat(lisn)
+
+    if not success:
+        set_error(context, lisn, "PyImportFrom", failure_reason)
+        return error_conclusion()
+    for dp in dest_name_or_pairs:
+        if isinstance(dp, tuple):
+            src, dest = dp
+            mod_id = ensure_local_var_name(comp_env, dest)
+        else:
+            ensure_local_var_name(comp_env, dp)
+
+    return stmt_result_conclusion([PyImportFromStmt(module_names, dest_name_or_pairs)],
+                                  PyLiteral(None))
+
 
 def translate_import_from(translator, lisn, comp_env, premise, config, context):
     assert check_multi_xexpr(lisn, "import_from")
@@ -2763,7 +2948,7 @@ def translate_import_from(translator, lisn, comp_env, premise, config, context):
     if module_names is None:
         set_comp_error(context,
                        CompErrorObject("IllegalImportName",
-                                       "Not appropriate import module",
+                                       "Not appropriate import name",
                                        "<source>", head_node["locinfo"]))
         return error_conclusion()
     else:
@@ -2795,7 +2980,8 @@ def add_python_native(comp_env):
     exec("", glob)
     for name in glob["__builtins__"].keys():
         comp_env.add_global(name, GlobalScopeVar(name))
-
+    comp_env.add_global(name, GlobalScopeVar("print"))
+    
 
 def setup_base_syntax(comp_env):
     add_python_native(comp_env)
