@@ -16,7 +16,7 @@ def NOT_REACHABLE():
     raise Exception("Not reachable")
 
 def dotify(name_or_name_list):
-    if isinstance(name_or_name_list, str):
+    if isinstance(name_or_name_list, basestring):
         dotted_name = name_or_name_list
     else:
         dotted_name = ".".join(name_or_name_list)
@@ -1186,14 +1186,14 @@ class RuntimeExtern(IDInfo):
 class Expander(IDInfo):
     '''
     expander -
-        translator x lisn x CompEnv x Premise x Config x Context -> (pre bound) lisn
+        translator x lisn x Premise x Context -> (pre bound) lisn
     '''
     def __init__(self, expander, name=""):
         self.expander = expander
         self.name = name
 
-    def expand(self, translator, lisn, comp_env, premise, config, context):
-        return self.expander(translator, lisn, comp_env, premise, config, context)
+    def expand(self, translator, lisn, premise, context):
+        return self.expander(translator, lisn, premise, context)
 
     def __repr__(self):
         return "<Syntax expander %s>"%self.name
@@ -1202,14 +1202,14 @@ class Expander(IDInfo):
 class Converter(IDInfo):
     '''
     converter - 
-        translator x lisn x CompEnv x Premise x Config x Context -> Conclusion
+        translator x lisn x Premise x Context -> Conclusion
     '''
     def __init__(self, converter, name=""):
         self.converter = converter
         self.name = name 
 
-    def convert(self, translator, lisn, comp_env, premise, config, context):
-        return self.converter(translator, lisn, comp_env, premise, config, context)
+    def convert(self, translator, lisn, premise, context):
+        return self.converter(translator, lisn, premise, context)
 
     def __repr__(self):
         return "<Syntax converter %s>"%self.name
@@ -1626,22 +1626,23 @@ def integrate_list(comp_env, conclusions):
 
     return (success, preseq_stmts, result, used_imd_ids)
 
-class RuntimeSyms:
-    def __init__(self, importer_id):
-        pass
-
-
-class Context:
-    def __init__(self, runtime_obj_id, importer_id, line_info_id, max_error_cnt):
+class RuntimeStore:
+    def __init__(self, runtime_obj_id, importer_id, line_info_id):
         self.runtime_obj_id = runtime_obj_id
         self.importer_id = importer_id
         self.line_info_id = line_info_id
-        self.max_error_cnt = max_error_cnt
+
+
+class Context:
+    def __init__(self, comp_env, config, rt_store):
+        self.comp_env = comp_env
+        self.config = config
+        self.rt_store = rt_store
         self.errors = []
 
     def add_error(self, error_obj):
         self.errors.append(error_obj)
-        if self.max_error_cnt <= len(self.errors):
+        if self.config.max_error_cnt <= len(self.errors):
             raise NoMoreErrorAcceptableException
 
     def any_error(self):
@@ -1669,11 +1670,11 @@ def stmtify_expr(expr, use_return_value, imd_id):
 
 def basic_emitter(fun):
     @wraps(fun)
-    def wrapper(translator, lisn, comp_env, premise, config, context):
-        conclusion = fun(translator, lisn, comp_env, premise, config, context)
+    def wrapper(translator, lisn, premise, context):
+        conclusion = fun(translator, lisn, premise, context)
         assert isinstance(conclusion, Conclusion)
 
-        if config.emit_line_info:
+        if context.config.emit_line_info:
             locinfo = lisn["locinfo"]
             line_directive = \
                 PyCall(PyMetaID(context.line_info_id),
@@ -1691,7 +1692,7 @@ def basic_emitter(fun):
 
 
 @node_translator.add.trailer
-def nt_trailer(translator, lisn, comp_env, premise, config, context):
+def nt_trailer(translator, lisn, premise, context):
     trailer_type = lisn["trailer_type"] 
     scope = lisn["scope"]
     
@@ -1704,9 +1705,7 @@ def nt_trailer(translator, lisn, comp_env, premise, config, context):
         return error_conclusion()
 
     scope_concl = translator(scope,
-                             comp_env,
                              Premise(True),
-                             config,
                              context)
 
     if trailer_type == "attr":
@@ -1714,16 +1713,14 @@ def nt_trailer(translator, lisn, comp_env, premise, config, context):
             return PyAttrAccess(scope_expr, attr)
 
         attr = lisn["attr"]
-        return integrate_conclusion(comp_env, f, scope_concl)
+        return integrate_conclusion(context.comp_env, f, scope_concl)
     elif trailer_type == "array":
         index_param = lisn["index_param"]
         item_concl = translator(index_param,
-                                comp_env,
                                 Premise(True),
-                                config,
                                 context)
 
-        return integrate_conclusion(comp_env,
+        return integrate_conclusion(context.comp_env,
                                     PyItemAccess,
                                     scope_concl,
                                     item_concl)
@@ -1733,39 +1730,35 @@ def nt_trailer(translator, lisn, comp_env, premise, config, context):
         right_slice = lisn["right_slice"]
         
         left_slice_concl = translator(left_slice,
-                                      comp_env,
                                       Premise(True),
-                                      config,
                                       context) \
                             if left_slice else None
         right_slice_concl = translator(right_slice,
-                                       comp_env,
                                        Premise(True),
-                                       config,
                                        context) \
                              if right_slice else None
 
 
         if left_slice is None and right_slice is None:
-            return integrate_conclusion(comp_env,
+            return integrate_conclusion(context.comp_env,
                 lambda scope_expr: PyArraySlice(scope_expr, None, None),
                 scope_concl
             )
 
         elif left_slice is None:
-            return integrate_conclusion(comp_env,
+            return integrate_conclusion(context.comp_env,
                 lambda scope_expr, right_expr: PyArraySlice(scope_expr, None, right_expr),
                 scope_concl,
                 right_slice_concl
             )
         elif right_slice is None:
-            return integrate_conclusion(comp_env,
+            return integrate_conclusion(context.comp_env,
                 lambda scope_expr, left_expr: PyArraySlice(scope_expr, left_expr, None),
                 scope_concl,
                 left_slice_concl
             )
         else:
-            return integrate_conclusion(comp_env,
+            return integrate_conclusion(context.comp_env,
                 lambda scope_expr, left_expr, right_expr: \
                   PyArraySlice(scope_expr, left_expr, right_expr),
                 scope_concl,
@@ -1797,7 +1790,7 @@ def python_control_name(name):
 
 
 @node_translator.add.name
-def nt_name(translator, lisn, comp_env, premise, config, context):
+def nt_name(translator, lisn, premise, context):
     name = lisn["name"]
     use_return_value = premise.use_return_value
 
@@ -1827,8 +1820,8 @@ def nt_name(translator, lisn, comp_env, premise, config, context):
             return stmt_conclusion([control_stmt])
 
     if not hasattr(lisn, "meta_id"):
-        if comp_env.has_name(name):
-            name_id, info = comp_env.lookup_name(name)
+        if context.comp_env.has_name(name):
+            name_id, info = context.comp_env.lookup_name(name)
         else:
             set_comp_error(context,
                            CompErrorObject("UnboundVariable",
@@ -1839,7 +1832,7 @@ def nt_name(translator, lisn, comp_env, premise, config, context):
 
     else:
         name_id = lisn["meta_id"]
-        info = comp_env.get_id_info(name_id)
+        info = context.comp_env.get_id_info(name_id)
 
     if info.is_var() or info.is_global_scope_var():
         return expr_conclusion(PyMetaID(name_id))
@@ -1857,7 +1850,7 @@ def nt_name(translator, lisn, comp_env, premise, config, context):
 
 
 @node_translator.add.literal
-def nt_literal(translator, lisn, comp_env, premise, config, context):
+def nt_literal(translator, lisn, premise, context):
     literal_type = lisn["literal_type"]
     if literal_type == "string":
         return expr_conclusion(PyLiteral(lisn["content"]))
@@ -1870,7 +1863,7 @@ def nt_literal(translator, lisn, comp_env, premise, config, context):
 
 
 @node_translator.add.binop
-def nt_binop(translator, lisn, comp_env, premise, config, context):
+def nt_binop(translator, lisn, premise, context):
 # && || -> and or
     if lisn["op"] == "&&":
         pyop = "and"
@@ -1882,35 +1875,35 @@ def nt_binop(translator, lisn, comp_env, premise, config, context):
     def integrate_result(lhs_result, rhs_result):
         return PyBinop(pyop, lhs_result, rhs_result)
 
-    lhs_conclusion = translator(lisn["lhs"], comp_env, Premise(use_return_value=True), config, context)
-    rhs_conclusion = translator(lisn["rhs"], comp_env, Premise(use_return_value=True), config, context)
+    lhs_conclusion = translator(lisn["lhs"], Premise(True), context)
+    rhs_conclusion = translator(lisn["rhs"], Premise(True), context)
 
 
-    return integrate_conclusion(comp_env, integrate_result, lhs_conclusion, rhs_conclusion)
+    return integrate_conclusion(context.comp_env, integrate_result, lhs_conclusion, rhs_conclusion)
 
 
 
 
 @node_translator.add.unop
-def nt_unop(translator, lisn, comp_env, premise, config, context):
+def nt_unop(translator, lisn, premise, context):
 # ! -> not
     if lisn["op"] == "!":
         pyop = "not"
     else:
         pyop = lisn["op"]
 
-    param_conclusion = translator(lisn["param"], comp_env, Premise(True), config, context)
-    return integrate_conclusion(comp_env,
+    param_conclusion = translator(lisn["param"], Premise(True), context)
+    return integrate_conclusion(context.comp_env,
                                 lambda param_expr: PyUnop(pyop, param_expr),
                                 param_conclusion)
 
 
 @node_translator.add.assign
-def nt_assign(translator, lisn, comp_env, premise, config, context):
+def nt_assign(translator, lisn, premise, context):
     op = lisn["op"]
     lvalue_type = lisn["lvalue_type"]
     param = lisn["param"]
-    param_concl = translator(param, comp_env, Premise(True), config, context)
+    param_concl = translator(param, Premise(True), context)
 
     if lvalue_type == "name":
         lvalue_name = lisn["lvalue_name"]
@@ -1923,9 +1916,9 @@ def nt_assign(translator, lisn, comp_env, premise, config, context):
                                            lisn["locinfo"]))
             return error_conclusion()
 
-        local_id = ensure_local_var_name(comp_env, lvalue_name)
+        local_id = ensure_local_var_name(context.comp_env, lvalue_name)
 
-        return integrate_conclusion(comp_env,
+        return integrate_conclusion(context.comp_env,
                                     lambda param_expr: \
                                       (PyAssignmentToName(PyMetaID(local_id),
                                                           param_expr),
@@ -1936,11 +1929,9 @@ def nt_assign(translator, lisn, comp_env, premise, config, context):
         lvalue_name = lisn["lvalue_name"]
         lvalue_scope = lisn["lvalue_scope"]
         scope_concl = translator(lvalue_scope,
-                                 comp_env,
                                  Premise(True),
-                                 config,
                                  context)
-        return integrate_conclusion(comp_env,
+        return integrate_conclusion(context.comp_env,
                                     lambda param_expr, scope_expr: \
                                       (PyAssignmentToAttr(scope_expr,
                                                           lvalue_name,
@@ -1953,16 +1944,12 @@ def nt_assign(translator, lisn, comp_env, premise, config, context):
         lvalue_index = lisn["lvalue_index"]
 
         scope_concl = translator(lvalue_scope,
-                                 comp_env,
                                  Premise(True),
-                                 config,
                                  context)
         index_concl = translator(lvalue_index,
-                                 comp_env,
                                  Premise(True),
-                                 config,
                                  context)
-        return integrate_conclusion(comp_env,
+        return integrate_conclusion(context.comp_env,
                                     lambda param_expr, scope_expr, index_expr: \
                                       (PyAssignmentToItem(scope_expr,
                                                           index_expr,
@@ -1976,12 +1963,12 @@ def nt_assign(translator, lisn, comp_env, premise, config, context):
 
 
 @node_translator.add.suite
-def nt_suite(translator, lisn, comp_env, premise, config, context):
-    return translate_suite(translator, lisn, comp_env, premise, config, context)
+def nt_suite(translator, lisn, premise, context):
+    return translate_suite(translator, lisn, premise, context)
 
 
 @node_translator.add.xexpr
-def nt_xexpr(translator, lisn, comp_env, premise, config, context):
+def nt_xexpr(translator, lisn, premise, context):
     # 1. check if multi name is def, import, import_from
     # 2. lookahead name part to check if name is expander/converter
     # 3. lastly treat label as just function
@@ -1989,15 +1976,15 @@ def nt_xexpr(translator, lisn, comp_env, premise, config, context):
     if lisn["has_head_label"]:
         head_label = lisn["head_label"]
         if head_label == "def":
-            return translate_def(translator, lisn, comp_env, Premise(False), config, context)
+            return translate_def(translator, lisn, Premise(False), context)
         elif head_label == "import":
-            return translate_import(translator, lisn, comp_env, Premise(False), config, context)
+            return translate_import(translator, lisn, Premise(False), context)
         elif head_label == "import_from":
-            return translate_import_from(translator, lisn, comp_env, Premise(False), config, context)
+            return translate_import_from(translator, lisn, Premise(False), context)
         elif head_label == "pyimport":
-            return translate_pyimport(translator, lisn, comp_env, Premise(False), config, context)
+            return translate_pyimport(translator, lisn, Premise(False), context)
         elif head_label == "pyimport_from":
-            return translate_pyimport_from(translator, lisn, comp_env, Premise(False), config, context)
+            return translate_pyimport_from(translator, lisn, Premise(False), context)
         else:
             set_comp_error(context,
                            CompErrorObject(
@@ -2014,47 +2001,35 @@ def nt_xexpr(translator, lisn, comp_env, premise, config, context):
 
         # lookahead
         if head_expr_name is not None and \
-            comp_env.has_name(head_expr_name):
-            _, info = comp_env.lookup_name(head_expr_name)
+            context.comp_env.has_name(head_expr_name):
+            _, info = context.comp_env.lookup_name(head_expr_name)
             if info.is_expander():
                 return translator(info.expand(translator,
                                               lisn,
-                                              comp_env,
                                               premise,
-                                              config,
                                               context),
-                                  comp_env,
                                   premise,
-                                  config,
                                   context)
             elif info.is_converter():
-                return info.convert(translator, lisn, comp_env, premise, config, context)
+                return info.convert(translator, lisn, premise, context)
 
 
-        applicant_concl = translator(head_expr, comp_env, Premise(True), config, context)
-        parg_concls = [translator(parg, comp_env, Premise(True), config, context) for parg in arg_info["pargs"]]
+        applicant_concl = translator(head_expr, Premise(True), context)
+        parg_concls = [translator(parg, Premise(True), context) for parg in arg_info["pargs"]]
         karg_keywords = [k for k, _ in arg_info["kargs"]]
-        karg_concls = [translator(karg, comp_env, Premise(True), config, context) for _, karg in arg_info["kargs"]]
+        karg_concls = [translator(karg, Premise(True), context) for _, karg in arg_info["kargs"]]
         star_concl = translator(arg_info["star"],
-                                comp_env,
                                 Premise(True),
-                                config,
                                 context) if arg_info["has_star"] else None
         dstar_concl = translator(arg_info["dstar"],
-                                 comp_env,
                                  Premise(True),
-                                 config,
                                  context) if arg_info["has_dstar"] else None
 
         amp_concl = translator(arg_info["amp"],
-                               comp_env,
                                Premise(True),
-                               config,
                                context) if arg_info["has_amp"] else None
         damp_concl = translator(arg_info["damp"],
-                                 comp_env,
                                  Premise(True),
-                                 config,
                                  context) if arg_info["has_damp"] else None
 
 
@@ -2067,9 +2042,7 @@ def nt_xexpr(translator, lisn, comp_env, premise, config, context):
             for obj in lisn["vert_suite"]["exprs"]:
                 param = obj["param"]
                 concl = translator(param,
-                                   comp_env,
                                    Premise(True),
-                                   config,
                                    context)
                 if obj["is_arrow"]:
                     label = obj["arrow_lstring"]
@@ -2083,8 +2056,8 @@ def nt_xexpr(translator, lisn, comp_env, premise, config, context):
 
         def integrator(callee_expr, parg_exprs, karg_exprs, star_expr, dstar_expr, 
                        amp_expr, damp_expr, varg_exprs, vattr_exprs):
-            tuple_maker_id, _ = comp_env.lookup_global_name("tuple")
-            dict_maker_id, _ = comp_env.lookup_global_name("dict")
+            tuple_maker_id, _ = context.comp_env.lookup_global_name("tuple")
+            dict_maker_id, _ = context.comp_env.lookup_global_name("dict")
 
             real_kargs = zip(karg_keywords, karg_exprs)
             preseq_stmts = []
@@ -2112,7 +2085,7 @@ def nt_xexpr(translator, lisn, comp_env, premise, config, context):
             elif damp_expr is not None and not vattr_exprs:
                 real_kargs.append(("__vattr__", damp_expr))
             elif damp_expr is not None and vattr_exprs:
-                imd_id = comp_env.issue_local_immediate()
+                imd_id = context.comp_env.issue_local_immediate()
                 preseq_stmts.append(PyAssignmentToName(PyMetaID(imd_id), damp_expr))
                 preseq_stmts.append(PyExprStmt(PyCall(PyAttrAccess(PyMetaID(imd_id),
                                                                    "update"),
@@ -2126,7 +2099,7 @@ def nt_xexpr(translator, lisn, comp_env, premise, config, context):
                                  star_expr,
                                  dstar_expr)
             return (preseq_stmts, result_expr)
-        return xintegrate_conclusion(comp_env,
+        return xintegrate_conclusion(context.comp_env,
                                      integrator,
                                      applicant_concl,
                                      parg_concls,
@@ -2169,10 +2142,10 @@ def branch_pat(case, default):
         return (False, "Bad Form", [], None)
 
 
-def translate_branch(translator, lisn, comp_env, premise, config, context):
+def translate_branch(translator, lisn, premise, context):
     use_return_value = premise.use_return_value
     if use_return_value:
-        result_id = comp_env.issue_local_immediate()
+        result_id = context.comp_env.issue_local_immediate()
     else:
         result_id = None
 
@@ -2212,16 +2185,8 @@ def translate_branch(translator, lisn, comp_env, premise, config, context):
     iter_if_stmt = if_stmt
     for pred, conseq in cond_pairs:
         cur_success = True
-        pred_concl = translator(pred, 
-                          comp_env, 
-                          Premise(True), 
-                          config, 
-                          context)
-        conseq_concl = translator(conseq, 
-                                  comp_env, 
-                                  premise.copy(), 
-                                  config, 
-                                  context)
+        pred_concl = translator(pred, Premise(True), context)
+        conseq_concl = translator(conseq, premise.copy(), context)
 
         if pred_concl.error_occured():
             success = False
@@ -2250,11 +2215,7 @@ def translate_branch(translator, lisn, comp_env, premise, config, context):
 
 
     if else_lisn:
-        else_concl = translator(else_lisn,
-                                comp_env,
-                                premise.copy(), 
-                                config,
-                                context)
+        else_concl = translator(else_lisn, premise.copy(), context)
         if else_concl.error_occured():
             success = False
     else:
@@ -2311,7 +2272,7 @@ def is_def_node(node):
     return check_multi_xexpr(node, "def")
 
 
-def xtranslate_seq(translator, node_list, comp_env, premise, config, context):
+def xtranslate_seq(translator, node_list, premise, context):
     use_return_value = premise.use_return_value
     success = True
     concls = []
@@ -2329,15 +2290,15 @@ def xtranslate_seq(translator, node_list, comp_env, premise, config, context):
                                                    node["locinfo"]))
                     success = False
                 else:
-                    function_id = ensure_function_name(comp_env, def_name)
+                    function_id = ensure_function_name(context.comp_env, def_name)
                     child_premise.prebound_id = function_id # HACK?
 
-                    @delay(node, comp_env, child_premise, config, context)
-                    def translation_promise(node, comp_env, child_premise, config, context):
-                        return translator(node, comp_env, child_premise, config, context)
+                    @delay(node, child_premise, context)
+                    def translation_promise(node, child_premise, context):
+                        return translator(node, child_premise, context)
                     concls.append(translation_promise)
             else:
-                concls.append(translator(node, comp_env, child_premise, config, context))
+                concls.append(translator(node, child_premise, context))
         
         # force evaluation of translation of defs
         for idx in range(len(concls)):
@@ -2359,7 +2320,7 @@ def xtranslate_seq(translator, node_list, comp_env, premise, config, context):
         else:
             return stmt_conclusion(PyPass())
 
-def ltranslate_in_app_order(translator, node_list, comp_env, premise, config, context):
+def ltranslate_in_app_order(translator, node_list, context):
     '''
     Returns -
         (success,
@@ -2371,24 +2332,24 @@ def ltranslate_in_app_order(translator, node_list, comp_env, premise, config, co
     result_exprs = []
     success = True
     for node in node_list:
-        concl = translator(node, comp_env, Premise(True), config, context)
+        concl = translator(node, Premise(True), context)
         if concl.error_occured():
             success = False
             continue
         preseq_stmts.extend(concl.preseq_stmts)
         if concl.has_result() and concl.result_expr.may_have_side_effect():
-            imd_id = comp_env.issue_local_immediate()
+            imd_id = context.comp_env.issue_local_immediate()
             preseq_stmts.append(PyAssignmentToName(PyMetaID(imd_id), concl.result_expr))
             result_exprs.append(PyMetaID(imd_id))
         else:
             result_exprs.append(concl.result_expr)
     return (success, preseq_stmts, result_exprs)
 
-def translate_suite(translator, suite, comp_env, premise, config, context):
+def translate_suite(translator, suite, premise, context):
     node_list = suite_to_node_list(suite)
-    return xtranslate_seq(translator, node_list, comp_env, premise, config, context )
+    return xtranslate_seq(translator, node_list, premise, context)
 
-def translate_def(translator, lisn, comp_env, premise, config, context):
+def translate_def(translator, lisn, premise, context):
     assert is_def_node(lisn)
 
     def gather_formal_info():
@@ -2460,7 +2421,7 @@ def translate_def(translator, lisn, comp_env, premise, config, context):
         if def_xexpr["has_vert_suite"]:
             def_stmts = []
             suite = def_xexpr["vert_suite"]
-            concl = translator(suite, comp_env, Premise(True), config, context)
+            concl = translator(suite, Premise(True), context)
             def_stmts = concl.preseq_stmts
             def_stmts.append(PyReturn(concl.result_expr))
         else:
@@ -2480,22 +2441,18 @@ def translate_def(translator, lisn, comp_env, premise, config, context):
     # kwd_pairs: (string, node) list
     def_name, parg_strs, kwd_pairs, star_str, dstar_str = formal_info
     keywords = [k for k, _ in kwd_pairs]
-    kw_concls = [translator(knode,
-                            comp_env,
-                            Premise(True),
-                            config,
-                            context)
-                   for _, knode in kwd_pairs]
-    kw_success, preseq_stmts, karg_default_exprs, _ = integrate_list(comp_env, kw_concls)
+    kw_concls = [translator(knode, Premise(True), context) 
+                 for _, knode in kwd_pairs]
+    kw_success, preseq_stmts, karg_default_exprs, _ = integrate_list(context.comp_env, kw_concls)
     if not kw_success:
         return error_conclusion()
 
     prebound_id = premise.prebound_id if hasattr(premise, "prebound_id") else None
     if prebound_id is None:
-        function_id = ensure_function_name(comp_env, def_name) # function name
+        function_id = ensure_function_name(context.comp_env, def_name) # function name
     else:
-        assert comp_env.has_local_name(def_name, recursive=False)
-        _id, info = comp_env.lookup_name(def_name)
+        assert context.comp_env.has_local_name(def_name, recursive=False)
+        _id, info = context.comp_env.lookup_name(def_name)
         assert _id == prebound_id
         assert info.is_var()
         function_id = prebound_id # name is already bound to 
@@ -2520,24 +2477,24 @@ def translate_def(translator, lisn, comp_env, premise, config, context):
         return error_conclusion()
 
     ## NEW ENV
-    comp_env.setup_local_frame("def") 
+    context.comp_env.setup_local_frame("def") 
 
     # set names of arguments into new local environment
     parg_ids = []
     karg_id_pairs = []
     for name in parg_strs:
-        parg_ids.append(PyMetaID(ensure_local_arg_name(comp_env, name)))
+        parg_ids.append(PyMetaID(ensure_local_arg_name(context.comp_env, name)))
 
     for name, kexpr in zip(keywords, karg_default_exprs):
-        k_id = ensure_local_arg_name(comp_env, name)
+        k_id = ensure_local_arg_name(context.comp_env, name)
         karg_id_pairs.append((PyMetaID(k_id), kexpr))
 
     star_id = None
     dstar_id = None
     if star_str:
-        star_id = PyMetaID(ensure_local_arg_name(comp_env, star_str))
+        star_id = PyMetaID(ensure_local_arg_name(context.comp_env, star_str))
     if dstar_str:
-        dstar_id = PyMetaID(ensure_local_arg_name(comp_env, dstar_str))
+        dstar_id = PyMetaID(ensure_local_arg_name(context.comp_env, dstar_str))
     defun = make_defun(lisn,
                        PyMetaID(function_id),
                        parg_ids,
@@ -2546,29 +2503,29 @@ def translate_def(translator, lisn, comp_env, premise, config, context):
                        dstar_id)
 
     ## DEL ENV
-    comp_env.contract_local_frame() 
+    context.comp_env.contract_local_frame() 
 
     if premise.use_return_value:
         return stmt_result_conclusion(preseq_stmts + [defun], PyLiteral(None))
     else:
         return stmt_conclusion(preseq_stmts + [defun])
 
-def translate_let(translator, lisn, comp_env, premise, config, context):
+def translate_let(translator, lisn, premise, context):
     if lisn["has_vert_suite"]:
         arg_info = lisn["arg_info"]
         # TODO: syntax checking ( keyword duplication, prohbiting star&dstar argument)
         kargs = arg_info["kargs"]
         keywords = [k for k, _ in kargs]
-        concls = [translator(node, comp_env, Premise(True), config, context)
+        concls = [translator(node, Premise(True), context)
                     for _, node in kargs]
-        success, preseq_stmts, let_exprs, _ = integrate_list(comp_env, concls)
+        success, preseq_stmts, let_exprs, _ = integrate_list(context.comp_env, concls)
 
-        comp_env.setup_local_frame("let")
+        context.comp_env.setup_local_frame("let")
         for name, expr in zip(keywords, let_exprs):
-            let_id = ensure_local_var_name(comp_env, name)
+            let_id = ensure_local_var_name(context.comp_env, name)
             preseq_stmts += stmtify_expr(expr, True, let_id)
 
-        suite_result = translator(lisn["vert_suite"], comp_env, premise.copy(), config, context)
+        suite_result = translator(lisn["vert_suite"], premise.copy(), context)
         if suite_result.error_occured():
             success = False
             result_expr = None
@@ -2579,7 +2536,7 @@ def translate_let(translator, lisn, comp_env, premise, config, context):
             else:
                 result_expr = PyLiteral(None)
 
-        comp_env.contract_local_frame()
+        context.comp_env.contract_local_frame()
         if not success:
             return error_conclusion()
         elif premise.use_return_value:
@@ -2592,9 +2549,9 @@ def translate_let(translator, lisn, comp_env, premise, config, context):
         return expr_conclusion(PyLiteral(None))
 
 
-def translate_seq(translator, lisn, comp_env, premise, config, context):
+def translate_seq(translator, lisn, premise, context):
     if lisn["has_vert_suite"]:
-        return translator(lisn["vert_suite"], comp_env, premise, config, context)
+        return translator(lisn["vert_suite"], premise.copy(), context)
     else:
         return expr_conclusion(PyLiteral(None))
 
@@ -2628,7 +2585,7 @@ def lambda_pat(case, default):
         return (False, "Bad form", None, None, None, None, [])
 
 
-def translate_lambda(translator, lisn, comp_env, premise, config, context):
+def translate_lambda(translator, lisn, premise, context):
     # pure expr -> use function
     # expr with pre-sequential stmts -> def
     # TODO
@@ -2685,7 +2642,7 @@ def for_pat(case, default):
 
 
 
-def _translate_iter_head(translator, lisn, comp_env, premise, config, context,
+def _translate_iter_head(translator, lisn, premise, context,
                          body_kont, error_handler):
     success, failure_reason, elem, index, iterable, body = for_pat(lisn)
 
@@ -2693,26 +2650,26 @@ def _translate_iter_head(translator, lisn, comp_env, premise, config, context,
         error_handler(failure_reason)
         return error_conclusion()
 
-    enumerate_id, _ = comp_env.lookup_global_name("enumerate")
+    enumerate_id, _ = context.comp_env.lookup_global_name("enumerate")
 
-    iterable_concl = translator(iterable, comp_env, Premise(True), config, context)
+    iterable_concl = translator(iterable, Premise(True), context)
     preseq_stmts = iterable_concl.preseq_stmts
     iterable_expr = iterable_concl.result_expr 
 
     elem_obj = None
     index_id = None
     if isinstance(elem, tuple):
-        elem_ids = [PyMetaID(ensure_local_var_name(comp_env, x))
+        elem_ids = [PyMetaID(ensure_local_var_name(context.comp_env, x))
                     for x in elem]
         if index is not None:
-            index_id = ensure_local_var_name(comp_env, index)
+            index_id = ensure_local_var_name(context.comp_env, index)
             elem_ids.insert(0, PyMetaID(index_id))
             iterable_expr = PyCall(PyMetaID(enumerate_id), [iterable_expr], None)
         elem_obj = PyTupleExpr(elem_ids)
     else:
-        elem_id = ensure_local_var_name(comp_env, elem)
+        elem_id = ensure_local_var_name(context.comp_env, elem)
         if index is not None:
-            index_id = ensure_local_var_name(comp_env, index)
+            index_id = ensure_local_var_name(context.comp_env, index)
             elem_obj = PyTupleExpr([PyMetaID(index_id), PyMetaID(elem_id)])
             iterable_expr = PyCall(PyMetaID(enumerate_id), [iterable_expr], None)
         else:
@@ -2722,19 +2679,17 @@ def _translate_iter_head(translator, lisn, comp_env, premise, config, context,
 
 
 
-def translate_for(translator, lisn, comp_env, premise, config, context):
+def translate_for(translator, lisn, premise, context):
     use_return_value = premise.use_return_value
     if use_return_value:
-        result_id = comp_env.issue_local_immediate()
+        result_id = context.comp_env.issue_local_immediate()
     else:
         result_id = None
 
     def kont(head_preseq_stmts, elem_obj, iterable_expr, body):
         body_concl = xtranslate_seq(translator,
                                     body,
-                                    comp_env,
                                     premise.copy(),
-                                    config,
                                     context)
         stmts = head_preseq_stmts
         body_stmts = body_concl.preseq_stmts
@@ -2758,23 +2713,20 @@ def translate_for(translator, lisn, comp_env, premise, config, context):
                                        "<source>",
                                        lisn["locinfo"]))
 
-    return _translate_iter_head(translator, lisn, comp_env, premise.copy(), config, context,
+    return _translate_iter_head(translator, lisn, premise.copy(), context,
                                 kont, error_handler)
 
 
-def translate_each(translator, lisn, comp_env, premise, config, context):
+def translate_each(translator, lisn, premise, context):
     use_return_value = premise.use_return_value
     if use_return_value:
-        result_id = comp_env.issue_local_immediate()
+        result_id = context.comp_env.issue_local_immediate()
     else:
         result_id = None
 
     def kont(head_preseq_stmts, elem_obj, iterable_expr, body):
         success, body_stmts, result_exprs = ltranslate_in_app_order(translator,
                                                                     body,
-                                                                    comp_env,
-                                                                    Premise(True),
-                                                                    config,
                                                                     context)
         if not success:
             return error_conclusion()
@@ -2802,7 +2754,7 @@ def translate_each(translator, lisn, comp_env, premise, config, context):
                                        "<source>",
                                        lisn["locinfo"]))
 
-    return _translate_iter_head(translator, lisn, comp_env, premise.copy(), config, context,
+    return _translate_iter_head(translator, lisn, premise.copy(), context,
                                 kont, error_handler)
 
 @LISNPattern
@@ -2825,8 +2777,9 @@ def html_node_pat(case, default):
         return (False, "Bad Form", None, None, None)
 
 
-def translate_html_node(translator, lisn, comp_env, premise, config, context):
-    runtime_id = context.runtime_obj_id
+HTML_TAGPOOL_NAME = "__html__"
+def translate_html_node(translator, lisn, premise, context):
+    tagpool_id, _ = context.comp_env.lookup_global_name(HTML_TAGPOOL_NAME)
     success, failure_reason, tag_name, attr, body = html_node_pat(lisn)
 
     if not success:
@@ -2842,9 +2795,6 @@ def translate_html_node(translator, lisn, comp_env, premise, config, context):
     success, stmts, param_exprs = \
         ltranslate_in_app_order(translator,
                                 [v for _, v in attr_pairs] + body,
-                                comp_env,
-                                Premise(True),
-                                config,
                                 context)
     attr_exprs = param_exprs[:len(attr_pairs)]
     body_exprs = param_exprs[len(attr_pairs):]
@@ -2853,15 +2803,14 @@ def translate_html_node(translator, lisn, comp_env, premise, config, context):
     caller_pargs = [PyDictExpr(dict(zip(map(PyLiteral, attr_keys), attr_exprs)))]
     caller_pargs.extend(body_exprs)
 
-    mk = PyCall(PyAttrAccess(PyAttrAccess(PyMetaID(runtime_id),
-                                          "html"),
+    mk = PyCall(PyAttrAccess(PyMetaID(tagpool_id),
                              tag_name),
                 caller_pargs,
                 None)
     return stmt_result_conclusion(stmts, mk)
 
         
-def translate_import(translator, lisn, comp_env, premise, config, context):
+def translate_import(translator, lisn, premise, context):
     assert check_multi_xexpr(lisn, "import")
 
     head_node = lisn["head_expr"]
@@ -2874,10 +2823,10 @@ def translate_import(translator, lisn, comp_env, premise, config, context):
         return error_conclusion()
     else:
         last_name = names[-1]
-        accessor = PyMetaID(context.importer_id)
+        accessor = PyMetaID(context.rt_store.importer_id)
         for name in names:
             accessor = PyAttrAccess(accessor, name)
-        module_id = ensure_local_var_name(comp_env, last_name)
+        module_id = ensure_local_var_name(context.comp_env, last_name)
 
         assign = PyAssignmentToName(PyMetaID(module_id), accessor)
         return stmt_conclusion([assign])
@@ -2885,7 +2834,7 @@ def translate_import(translator, lisn, comp_env, premise, config, context):
 def set_error(context, lisn, _type, name):
     set_comp_error(context, CompErrorObject(_type, name, "<source>", lisn["locinfo"]))
 
-def translate_pyimport(translator, lisn, comp_env, premise, config, context):
+def translate_pyimport(translator, lisn, premise, context):
     head_node = lisn["head_expr"]
     names = force_dotted_name(head_node)
     last_name = names[-1]
@@ -2898,7 +2847,7 @@ def translate_pyimport(translator, lisn, comp_env, premise, config, context):
         return error_conclusion()
 
     preseq_stmts = []
-    importee_id = ensure_local_var_name(comp_env, last_name)
+    importee_id = ensure_local_var_name(context.comp_env, last_name)
 
     return stmt_result_conclusion([PyImportStmt(names, PyMetaID(importee_id))], PyLiteral(None))
 
@@ -2932,7 +2881,7 @@ def pyimport_from_pat(case, default):
         return (False, "Bad form", None, None)
 
 
-def translate_pyimport_from(translator, lisn, comp_env, premise, config, context):
+def translate_pyimport_from(translator, lisn, premise, context):
     success, failure_reason, module_names, dest_name_or_pairs = pyimport_from_pat(lisn)
 
     if not success:
@@ -2942,10 +2891,10 @@ def translate_pyimport_from(translator, lisn, comp_env, premise, config, context
     for dp in dest_name_or_pairs:
         if isinstance(dp, tuple):
             src, dest = dp
-            dest_id = ensure_local_var_name(comp_env, dest)
+            dest_id = ensure_local_var_name(context.comp_env, dest)
             new_dnp.append((src, PyMetaID(dest_id)))
         else:
-            dest_id = ensure_local_var_name(comp_env, dp)
+            dest_id = ensure_local_var_name(context.comp_env, dp)
             new_dnp.append((dp, PyMetaID(dest_id)))
 
 
@@ -2953,7 +2902,7 @@ def translate_pyimport_from(translator, lisn, comp_env, premise, config, context
                                   PyLiteral(None))
 
 
-def translate_import_from(translator, lisn, comp_env, premise, config, context):
+def translate_import_from(translator, lisn, premise, context):
     assert check_multi_xexpr(lisn, "import_from")
 
     def extract_import_names(suite):
@@ -2996,22 +2945,22 @@ def translate_import_from(translator, lisn, comp_env, premise, config, context):
         return error_conclusion()
     else:
         last_name = module_names[-1]
-        accessor = PyMetaID(context.importer_id)
+        accessor = PyMetaID(context.rt_store.importer_id)
         for name in module_names:
             accessor = PyAttrAccess(accessor, name)
-        module_id = comp_env.issue_local_immediate()
+        module_id = context.comp_env.issue_local_immediate()
 
         stmts = [PyAssignmentToName(PyMetaID(module_id), accessor)]
         for name_or_name_pair in import_names:
             if isinstance(name_or_name_pair, tuple):
                 source_name, dest_name = name_or_name_pair
 
-                dest_id = ensure_local_var_name(comp_env, dest_name)
+                dest_id = ensure_local_var_name(context.comp_env, dest_name)
 
                 stmts.append(PyAssignmentToName(PyMetaID(dest_id), PyAttrAccess(PyMetaID(module_id), source_name)))
             else:
                 dest_name = name_or_name_pair
-                dest_id = ensure_local_var_name(comp_env, dest_name)
+                dest_id = ensure_local_var_name(context.comp_env, dest_name)
 
                 stmts.append(PyAssignmentToName(PyMetaID(dest_id), PyAttrAccess(PyMetaID(module_id), dest_name)))
 
@@ -3038,7 +2987,7 @@ def raise_pat(case, default):
         return False
 
 
-def translate_raise(translator, lisn, comp_env, premise, config, context):
+def translate_raise(translator, lisn, premise, context):
     throwee = raise_pat(lisn)
 
     if throwee == False:
@@ -3047,13 +2996,11 @@ def translate_raise(translator, lisn, comp_env, premise, config, context):
     else:
         if throwee:
             concl = translator(throwee,
-                               comp_env,
                                Premise(True),
-                               config,
                                context)
         else:
             concl = None
-        return xintegrate_conclusion(comp_env,
+        return xintegrate_conclusion(context.comp_env,
                                      lambda expr: (PyRaise(expr), None),
                                      concl)
 
@@ -3167,20 +3114,61 @@ _PYTHON_RESERVED_WORDS = set([
 def is_python_reserved_word(name):
     return name in _PYTHON_RESERVED_WORDS 
 
+class TranslationResult:
+    def __init__(self, stmts, success=True, errors=None):
+        self.stmts = stmts
+        self.success = success
+        self.errors = errors or []
+        self.error_flooded = False
 
-def main_translate(suite, config=None):
+    def set_error_flooded(self):
+        self.error_flooded = True  
+
+    def to_string(self, indent=4):
+        if not self.success:
+            raise ValueError("Cannot be converted due to translation failure")
+        
+        return "".join((stmt.to_string(indent, 0) for stmt in self.stmts))
+
+    def error_report(self):
+        if self.success:
+            raise ValueError("Attempted to get error report but translation has been done successfully")
+
+        result = ""
+        for err_obj in self.errors:
+            assert isinstance(err_obj, CompErrorObject)
+            result += "<Error %s> %s in \"%s\" [line %d-%d, col %d-%d]\n"%(
+                err_obj._type,
+                err_obj.msg,
+                err_obj.source_file,
+                err_obj.locinfo["sline"],
+                err_obj.locinfo["eline"],
+                err_obj.locinfo["scol"],
+                err_obj.locinfo["ecol"] - 1,
+            )
+        if self.error_flooded:
+            result += "Too many error occurred. Translation has been stopped.\n"
+        return result
+
+
+def main_translate(suite, config=None, extimport=None):
     config = config or Config()
+    extimport = extimport or {}
     comp_env = CompEnv()
+
+    # html tag pool -> "tempy.tag.TagPool"
+    extimport[HTML_TAGPOOL_NAME] = ("name", ("tempy.tag", "TagPool"))
+
     setup_base_syntax(comp_env)
     setup_html_runtime(comp_env)
 
-    comp_env.setup_local_frame("def")
+    result_stmts = []
 
+    comp_env.setup_local_frame("def")
     runtime_obj_id = comp_env.add_local("__runtime__",
                                         Var(IDHint("__runtime__",
                                                    "argument",
                                                    "local")))
-
     importer_id = comp_env.add_local("__importer__",
                                      Var(IDHint("__importer__",
                                                 "argument",
@@ -3189,18 +3177,27 @@ def main_translate(suite, config=None):
                                       Var(IDHint("__line__",
                                                  "argument",
                                                  "local")))
-    context = Context(runtime_obj_id, importer_id, line_info_id, config.max_error_cnt)
+    context = Context(comp_env,
+                      config,
+                      RuntimeStore(runtime_obj_id, importer_id, line_info_id))
 
     def_stmts = []
     success = True
     error_flooded = False
 
+    for name_in_src, mod_obj in extimport.items():
+        _type, name_obj = mod_obj
+        _id = comp_env.add_global(name_in_src, Var(IDHint(name_in_src, "local", "local")))
+        if _type == "module":
+            def_stmts.append(PyImportStmt(name_obj, PyMetaID(_id)))
+        elif _type == "name":
+            mod_name, name_str = name_obj
+            def_stmts.append(PyImportFromStmt(mod_name, [(name_str, PyMetaID(_id))]))
+        else:
+            raise ValueError("%s is not appropriate type tag for dynscope value"%_type)
+
     try:
-        main_concl = node_translator(suite,
-                                     comp_env,
-                                     Premise(False),
-                                     config,
-                                     context)
+        main_concl = node_translator(suite, Premise(False), context)
         if main_concl.error_occured():
             success = False 
         else:
@@ -3212,10 +3209,10 @@ def main_translate(suite, config=None):
         success = False
 
     if not success:
-        print context.errors
+        fres = TranslationResult(None, False, context.errors)
         if error_flooded:
-            print "Error Flooded"
-        return None
+            fres.set_error_flooded()
+        return fres
 
     dict_sym_id, dict_sym_info = comp_env.lookup_global_name("dict")
     assert dict_sym_info.is_global_scope_var()
@@ -3234,12 +3231,12 @@ def main_translate(suite, config=None):
                                      kw_arguments)))
     comp_env.contract_local_frame()
     def_mk_tmp = PyDefun("tempy_main",
-                         [PyMetaID(context.runtime_obj_id),
-                          PyMetaID(context.importer_id),
-                          PyMetaID(context.line_info_id)],
+                         [PyMetaID(runtime_obj_id),
+                          PyMetaID(importer_id),
+                          PyMetaID(line_info_id)],
                          None,
                          def_stmts)
-
+    result_stmts.append(def_mk_tmp)
     hint_dict = comp_env.get_hint_dict()
     def naive_renaming_driver(_id, local_dict):
         id_hint = hint_dict[_id]
@@ -3274,14 +3271,25 @@ def main_translate(suite, config=None):
             NOT_REACHABLE()
         else:
             return id_hint
-    def_mk_tmp.convert_meta_id(naive_renaming_driver, {})
-    return def_mk_tmp
+    local_dict = {}
+    for stmt in result_stmts:
+        stmt.convert_meta_id(naive_renaming_driver, local_dict)
 
-def translate_string(s):
+    return TranslationResult(result_stmts)
+
+
+def translate_string(s, config=None, extimport=None):
+    '''
+    extimport: 
+        dict of 
+            string(name in compiled source) to
+                ("module", string)
+                ("name", (string, string))
+    '''
     suite = loads(s)
-    return main_translate(suite)
+    return main_translate(suite, config, extimport)
 
 
-def translate_file(filepath):
+def translate_file(filepath, config=None, extimport=None):
     node = loads_file(filepath)
-    return main_translate(node)
+    return main_translate(node, config, extimport)

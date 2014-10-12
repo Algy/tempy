@@ -1,4 +1,5 @@
 from collections import Iterable
+
 HTML_TAGS = ['html',
          'head',
          'title',
@@ -233,13 +234,14 @@ class Tag:
             res += indent_space + "</%s>\n"%tag_name
         return res
 
-class TagPool:
+class _TagPoolSig:
     def __getattr__(self, tag_name):
         if tag_name.lower() in _TAG_SET:
             return lambda *args, **kwds: Tag(tag_name, *args, **kwds)
         else:
             raise ValueError("{0} is not appropriate tag".format(tag_name))
 
+TagPool = _TagPoolSig()
 def is_tag_name(name, case_sensetive=False):
     if case_sensetive:
         return name in _TAG_SET
