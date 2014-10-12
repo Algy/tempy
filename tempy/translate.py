@@ -173,6 +173,7 @@ def stmt_list_to_string(stmt_list, indent, acc_indent):
                     for stmt in stmt_list])
 
 
+
 class PyDefun(PyStmt):
     def __init__(self, fun_name, pos_args, kwd_args, stmt_list, star=None, dstar=None, docstring=""):
         '''
@@ -279,6 +280,23 @@ class PyPass(PyStmt):
     def convert_meta_id(self, driver, local_dict):
         pass
 
+class PyRaise(PyStmt):
+    def __init__(self, to_be_throwed=None):
+        self.to_be_throwed = to_be_throwed 
+
+    def to_string(self, indent, acc_indent):
+        result = " "*acc_indent + "raise"
+        if self.to_be_throwed is not None:
+            result += " "
+            result += self.to_be_throwed.to_string()
+        result += "\n"
+        return result
+
+
+    def convert_meta_id(self, driver, local_dict):
+        if self.to_be_throwed is not None:
+            self.to_be_throwed = self.to_be_throwed.convert_meta_id(driver, local_dict)
+
 
 def meta_convert_stmt_list(stmt_list, driver, local_dict):
     for stmt in stmt_list:
@@ -381,14 +399,24 @@ class PyIfStmt(PyStmt):
 
 
 class PyImportStmt(PyStmt):
-    def __init__(self, name_or_name_list):
+    def __init__(self, name_or_name_list, alias):
         self.name_or_name_list = name_or_name_list
+        self.alias = alias # string or PyMetaID
 
     def to_string(self, indent, acc_indent):
-        return " "*acc_indent + "import " + dotify(self.name_or_name_list) + "\n"
+        if isinstance(self.alias, PyMetaID):
+            alias_str = self.alias.to_string().name
+        elif isinstance(self.alias, basestring):
+            alias_str = self.alias
+        else:
+            alias_str = ""
+        if alias_str:
+            alias_str = " as " + alias_str
+        return " "*acc_indent + "import " + dotify(self.name_or_name_list) + alias_str + "\n"
 
     def convert_meta_id(self, driver, local_dict):
-        pass
+        if isinstance(self.alias, PyMetaID):
+            self.alias = self.alias.convert_meta_id(driver, local_dict).name
 
 class PyImportFromStmt(PyStmt):
     def __init__(self, name_or_name_list, import_names):
@@ -406,13 +434,23 @@ class PyImportFromStmt(PyStmt):
                 addhoc += ", "
             if isinstance(name_or_pair, tuple):
                 src, dest = name_or_pair
+                if isinstance(dest, PyMetaID):
+                    dest = dest.to_string().name
                 addhoc += "%s as %s"%(src, dest)
             else:
                 addhoc += name_or_pair
         return result + addhoc + "\n"
 
     def convert_meta_id(self, driver, local_dict):
-        pass
+        new_ins = []
+        for item in self.import_names:
+            if isinstance(item, tuple):
+                src, dest = item
+                new_ins.append((src, dest.convert_meta_id(driver, local_dict).name))
+            else:
+                new_ins.append(item)
+        self.import_names = new_ins
+
 
 def PyAssignmentToName(name, expr):
     return PyAssignment(PyAssignment.ASSIGN_NAME, name, None, None, None, expr)
@@ -1588,6 +1626,11 @@ def integrate_list(comp_env, conclusions):
 
     return (success, preseq_stmts, result, used_imd_ids)
 
+class RuntimeSyms:
+    def __init__(self, importer_id):
+        pass
+
+
 class Context:
     def __init__(self, runtime_obj_id, importer_id, line_info_id, max_error_cnt):
         self.runtime_obj_id = runtime_obj_id
@@ -2762,7 +2805,6 @@ def translate_each(translator, lisn, comp_env, premise, config, context):
     return _translate_iter_head(translator, lisn, comp_env, premise.copy(), config, context,
                                 kont, error_handler)
 
-
 @LISNPattern
 def html_node_pat(case, default):
     @case
@@ -2855,13 +2897,10 @@ def translate_pyimport(translator, lisn, comp_env, premise, config, context):
         set_error(context, head_node, "IllegalPyImportForm", "No vertical body expected for pyimport")
         return error_conclusion()
 
-
-    ids = []
     preseq_stmts = []
-    for name in names:
-        ids.append(ensure_local_var_name(comp_env, name))
+    importee_id = ensure_local_var_name(comp_env, last_name)
 
-    return stmt_result_conclusion([PyImportStmt(names)], PyLiteral(None))
+    return stmt_result_conclusion([PyImportStmt(names, PyMetaID(importee_id))], PyLiteral(None))
 
 @LISNPattern
 def pyimport_from_pat(case, default):
@@ -2899,14 +2938,18 @@ def translate_pyimport_from(translator, lisn, comp_env, premise, config, context
     if not success:
         set_error(context, lisn, "PyImportFrom", failure_reason)
         return error_conclusion()
+    new_dnp = []
     for dp in dest_name_or_pairs:
         if isinstance(dp, tuple):
             src, dest = dp
-            mod_id = ensure_local_var_name(comp_env, dest)
+            dest_id = ensure_local_var_name(comp_env, dest)
+            new_dnp.append((src, PyMetaID(dest_id)))
         else:
-            ensure_local_var_name(comp_env, dp)
+            dest_id = ensure_local_var_name(comp_env, dp)
+            new_dnp.append((dp, PyMetaID(dest_id)))
 
-    return stmt_result_conclusion([PyImportFromStmt(module_names, dest_name_or_pairs)],
+
+    return stmt_result_conclusion([PyImportFromStmt(module_names, new_dnp)],
                                   PyLiteral(None))
 
 
@@ -2974,6 +3017,84 @@ def translate_import_from(translator, lisn, comp_env, premise, config, context):
 
         return stmt_conclusion(stmts)
 
+@LISNPattern
+def raise_pat(case, default):
+    @case
+    def c1(obj):
+        '''
+        raise ($expr)
+        '''
+        return obj["expr"]
+
+    @case
+    def c2(obj):
+        '''
+        raise()
+        '''
+        return None
+
+    @default
+    def d():
+        return False
+
+
+def translate_raise(translator, lisn, comp_env, premise, config, context):
+    throwee = raise_pat(lisn)
+
+    if throwee == False:
+        set_error(context, lisn, "Raise", "Bad Form")
+        return error_conclusion()
+    else:
+        if throwee:
+            concl = translator(throwee,
+                               comp_env,
+                               Premise(True),
+                               config,
+                               context)
+        else:
+            concl = None
+        return xintegrate_conclusion(comp_env,
+                                     lambda expr: (PyRaise(expr), None),
+                                     concl)
+
+
+@LISNPattern
+def try_pat(case, default):
+    @case
+    def with_fallthrough(obj):
+        '''
+        try>
+            keyword -> dict(with)
+        --
+            __kleene_star__(body): $expr
+            __kleene_star__(exc_part):
+                NAME$name -> $action
+        '''
+        pass
+# TODO
+
+
+@LISNPattern
+def class_pat(case, default):
+    @case
+    def c1():
+        '''
+        class x>
+            __optional__(parent): NAME$name
+        --
+            __kleene_star__(decls): $defun
+        '''
+        pass
+# TODO
+
+
+    
+
+
+
+
+
+    
 
 def add_python_native(comp_env):
     glob = {}
@@ -2985,6 +3106,9 @@ def add_python_native(comp_env):
 
 def setup_base_syntax(comp_env):
     add_python_native(comp_env)
+    comp_env.add_global("raise",
+                        Converter(translate_raise,
+                                  "raise"))
     comp_env.add_global("if",
                         Converter(translate_branch,
                                   "if"))

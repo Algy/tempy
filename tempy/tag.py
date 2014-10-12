@@ -1,5 +1,4 @@
 from collections import Iterable
-
 HTML_TAGS = ['html',
          'head',
          'title',
@@ -169,6 +168,7 @@ def _escape_string(val):
                 idx += 1
     '''
     return result
+
 
 def flatten_tags(val):
     result = []

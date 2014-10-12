@@ -190,7 +190,7 @@ class XExprMatcher(LISNMatcher):
                 result.update(vrt_res)
             else:
                 return (False, None)
-        else:
+        elif vert_list:
             return (False, None)
         return (True, result)
 
