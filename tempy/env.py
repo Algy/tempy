@@ -46,6 +46,7 @@ def _get_ts_and_code(path, get_code=True):
     else:
         return None
 
+
 class Environment:
     def __init__(self, path):
         self.path = path
@@ -67,7 +68,6 @@ class Environment:
             tpy_path = join(self.path, module_name + "." + TEMPY_EXT)
             tpyc_path = join(self.path, module_name + "." + TEMPYC_EXT)
 
-            code = None
             success = True
             io_errno = None
             try:
@@ -114,10 +114,12 @@ class Environment:
 
                 myself = self
                 exec_result = lcl['tempy_main'](None,
+                                                '''
                                                 type("Importer",
                                                      (object, ),
                                                      {"__getattr__":
                                                          lambda self, n: myself._module(n, visited.union([module_name]))})(),
+                                                 ''',
                                                 None) # TODO 
                 mod = TempyModule(module_name, exec_result)
                 self.modules[module_name] = mod
