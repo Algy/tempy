@@ -1,144 +1,47 @@
 import py_compile
 import time
 import marshal
+import errno
+import traceback
 
-from os.path import join, isfile, getmtime
-from translate import translate_file, translate_string
+from os.path import join as path_join, isfile, isdir, getmtime
+from translate import translate_file, translate_string, pystmts_to_string
 from struct import unpack
+
+from errors import TempyError, TempyImportError, TempyCompileError, TempyNativeCompileError
 
 TEMPY_EXT = "tpy"
 TEMPYC_EXT = "tpyc"
 
-class TempyError(Exception):
-    pass
-
-class TempyImportError(TempyError):
-    pass
-
-class TempyCompileError(TempyError):
-    pass
 
 class TempyModule:
-    def __init__(self, name, _dict=None):
-        self.name = name
-        self._dict = _dict or {}
+    def __init__(self, name, env, _dir, _global=None):
+        self.__name__ = name
+        self.__env__ = env
+        self.__dir__ = _dir
+        self.__global__ = _global or {}
+        self.__submodule__ = {}
+
+    def __repr__(self):
+        return "<TempyModule %s at %s>"%(repr(self.__name__), self.__dir__)
 
     def __getattr__(self, key):
-        if key == "__repr__":
-            return lambda: "<TempyModule %s>"%repr(self._dict)
-        else:
-            return self._dict[key]
+        try:
+            return self.__global__[key]
+        except KeyError:
+            raise AttributeError("%s has no attribute '%s'"%(repr(self), key))
 
-def _get_ts_and_code(path, get_code=True):
-    if isfile(path):
-        with open(path, "rb") as f:
-            magic_str = f.read(4)
-            if len(magic_str) < 4 or py_compile.MAGIC != magic_str:
-                return None
-            timestamp_str = f.read(4)
 
-            if len(timestamp_str) < 4:
-                return None
-            timestamp = unpack("<I", timestamp_str)[0]
-
-            if get_code:
-                code = marshal.load(f)
-            else:
-                code = None
-            return (timestamp, code)
-    else:
-        return None
 
 class _Importer:
-    def __init__(self, env, visited):
+    def __init__(self, env, current_module_name, visited):
         self.env = env
+        self.current_module_name = current_module_name
         self.visited = visited
 
-    def __getattr__(self, attr):
-        return self.env._module(attr, self.visited)
+    def __call__(self, *names):
+        return self.env._module(names, self.visited, self.current_module_name)
 
-
-class Environment:
-    def __init__(self, path):
-        self.path = path
-        self.modules = {}
-
-    def module(self, module_name):
-        return self._module(module_name)
-
-    def _module(self, module_name, visited=None):
-        if visited is None:
-            visited = set()
-
-        if module_name in visited:
-            raise TempyImportError("circular dependency: %s"%module_name)
-
-        tpy_path = join(self.path, module_name + "." + TEMPY_EXT)
-        tpyc_path = join(self.path, module_name + "." + TEMPYC_EXT)
-        # print "TPY:", tpy_path
-        # print "TPYC:", tpyc_path
-        if module_name in self.modules:
-            return self.modules[module_name]
-        else:
-            success = True
-            io_errno = None
-            try:
-                test_res = _get_ts_and_code(tpyc_path)
-                if test_res:
-                    # print "FOUND tpyc file"
-                    tpyc_timestamp, tpyc_code = test_res
-                    if isfile(tpy_path):
-                        # print "tpy is ALSO there..."
-                        try:
-                            tpy_timestamp = long(getmtime(tpy_path))
-                        except IOError:
-                            # print "!!1"
-                            code = tpyc_code
-                        else:
-                            if tpy_timestamp > tpyc_timestamp:
-                                code = compile_file(tpy_path)
-                                if _get_ts_and_code(tpyc_path, get_code=False):
-                                    try:
-                                        _write_code(tpyc_path, code)
-                                        # print "WRITED!#1"
-                                    except IOError:
-                                        pass
-                            else:
-                                code = tpyc_code
-                    else:
-                        code = tpyc_code
-                elif isfile(tpy_path):
-                    # print "tpy is there..."
-                    code = compile_file(tpy_path)
-                    if not isfile(tpyc_path) or _get_ts_and_code(tpyc_path, get_code=False): # XXX: not thread-safe, try telling 0x00 or MAGIC
-                        try:
-                            _write_code(tpyc_path, code)
-                            # print "WRITED!#2"
-                        except IOError:
-                            pass
-                else:
-                    # print "FS NOT FOUND"
-                    success = False
-            except IOError as error:
-                io_errno = error.errno
-                # print "ERRORNO NFOUND"
-                raise
-                # success = False
-
-            if not success:
-                err_msg = "Cannot Import the module %s"%module_name
-                if io_errno is not None:
-                    err_msg += " <IOErrno %d>"%io_errno
-                raise TempyImportError(err_msg)
-            else:
-                lcl = {}
-                gbl = {}
-                exec(code, gbl, lcl)
-
-                exec_result = lcl['tempy_main'](None, _Importer(self, visited.union([module_name])), None)
-                mod = TempyModule(module_name, exec_result)
-                self.modules[module_name] = mod
-                return mod
 
 
 def _write_code(filename, codeobject):
@@ -150,25 +53,185 @@ def _write_code(filename, codeobject):
         fc.seek(0, 0)
         fc.write(py_compile.MAGIC)
 
+def _naive_logger(x): print("[TempyEnvironmentLog]", x)
 
-def _compile_kont(tr_res):
-    if tr_res.success:
-        src = tr_res.to_string()
-        # print src
-        try:
-            code = compile(src, "<code>", "exec")
-            return code
-        except SyntaxError as e:
-            raise
-    else:
-        raise TempyCompileError(tr_res.error_report())
+class CompileOption:
+    def __init__(self, use_tpyc=True, verbose=False, logger=_naive_logger):
+        self.use_tpyc = use_tpyc
+        self.verbose = verbose
+        self.logger = logger
 
 
-def compile_string(path):
-    tr_res = translate_string(path)
-    return _compile_kont(tr_res)
+    def log(self, x):
+        if self.verbose:
+            self.logger(x)
 
-def compile_file(path):
-    tr_res = translate_file(path)
-    return _compile_kont(tr_res)
+class ModuleFetcher:
+    def __init__(self, systemdir=None, extradirs=None):
+        self.systemdir = systemdir
+        self.extradirs = extradirs or []
 
+    def _find(self, where, module_name):
+        file_path = path_join(where, module_name + "." + TEMPY_EXT)
+        if isfile(file_path):
+            return file_path
+        dir_path = path_join(where, module_name)
+        dir_init_path = path_join(where, module_name, "__init__" + "." + TEMPY_EXT)
+        if isdir(dir_path) and isfile(dir_init_path):
+            return dir_init_path
+        return None
+
+    def fetch_dir_by_name(self, pwd, module_name):
+        '''
+        Return (tpy filepath, if it is shared), according to given module_name.
+        If not found, None should be returned.
+        '''
+
+        first = self._find(pwd, module_name)
+        if first is not None:
+            return (first, False)
+
+        for where in [self.systemdir] + self.extradirs:
+            res = self._find(where, module_name)
+            if res is not None:
+                return (res, True)
+        return None
+
+class Environment:
+    def __init__(self, pwd, main_name="__main__", module_fetcher=None, compile_option=None):
+        self.module_fetcher = module_fetcher or ModuleFetcher(pwd)
+        self.main_module = TempyModule(main_name, self, pwd)
+        self.shared_dict = {}
+        self.compile_option = compile_option if compile_option else CompileOption()
+
+
+    def _code_generation(self, tpy_path, tpyc_path, write_to_pyc=True):
+        code = compile_file(tpy_path)
+        if write_to_pyc:
+            try:
+                _write_code(tpyc_path, code)
+            except IOError as err:
+                self.compile_option.log("IOError occured while writing codeobject to .tpyc file(%s): %s"%(tpyc_path, str(err)))
+        return code
+
+
+    def _retrieve_code(self, tpy_path, tpyc_path):
+        if self.compile_option.use_tpyc:
+            if isfile(tpyc_path):
+                try:
+                    f = open(tpyc_path, "rb")
+                    magic_str = f.read(4)
+                    if len(magic_str) < 4 or py_compile.MAGIC != magic_str:
+                        return self._code_generation(tpy_path, tpyc_path)
+                    timestamp_str = f.read(4)
+
+                    if len(timestamp_str) < 4:
+                        return self._code_generation(tpy_path, tpyc_path)
+                    tpyc_timestamp = unpack("<I", timestamp_str)[0]
+
+                    try:
+                        tpy_timestamp = long(getmtime(tpy_path))
+                    except IOError:
+                        tpy_timestamp = 0
+                    if tpyc_timestamp <= tpy_timestamp: # outdated
+                        return self._code_generation(tpy_path, tpyc_path)
+                    code = marshal.load(f)
+                    return code
+                except IOError as err:
+                    if err.errno == errno.ENOENT: # No such file
+                        self.compile_option.log("Failed to locate .pyc file(%s) even though It was assured that it should be present"%tpyc_path)
+                        return self._code_generation(tpy_path, tpyc_path)
+                    else:
+                        raise
+                finally:
+                    f.close()
+            else:
+                return self._code_generation(tpy_path, tpyc_path)
+        else:
+            return self._code_generation(tpy_path, tpyc_path, write_to_pyc=False)
+
+
+    def _import(self, parent_module, module_name, visited=None, invoker_module_name=None):
+        if module_name in parent_module.__submodule__:
+            return parent_module.__submodule__[module_name]
+        elif module_name in self.shared_dict:
+            return self.shared_dict[module_name]
+        else:
+            if visited is None:
+                visited = set()
+            pair = self.module_fetcher.fetch_dir_by_name(parent_module.__dir__, module_name)
+            if pair is None:
+                raise TempyImportError("No such module named '%s'"%module_name)
+            tpy_path, is_shared = pair
+            rdot_idx = tpy_path.rfind(".")
+            if rdot_idx == -1:
+                tpyc_path = tpy_path + "." + TEMPYC_EXT
+            else:
+                tpyc_path = tpy_path[:rdot_idx] + "." + TEMPYC_EXT
+
+            try:
+                code = self._retrieve_code(tpy_path, tpyc_path)
+            except TempyError:
+                raise
+            except Exception as error:
+                err_info = str(error)
+                err_msg = "Cannot import the module named '%s': %s"%(module_name, err_info)
+                raise TempyImportError(err_msg)
+            else:
+                lcl = {} # local
+                gbl = {} # global
+                exec(code, gbl, lcl)
+                if is_shared:
+                    current_module_name = module_name
+                else:
+                    current_module_name = parent_module.__name__ + "." + module_name
+                if current_module_name in visited:
+                    raise TempyImportError("circular dependency: in module '%s', tried to import '%s'"%(invoker_module_name, module_name))
+                exec_result = lcl['__tempy_main__'](None, 
+                                                    _Importer(self, 
+                                                              current_module_name,
+                                                              visited.union([current_module_name])
+                                                              ),
+                                                    None)
+                mod = TempyModule(current_module_name, self, path_join(parent_module.__dir__, module_name), exec_result)
+                if is_shared:
+                    self.shared_dict[module_name] = mod
+                else:
+                    parent_module.__submodule__[module_name] = mod
+                return mod
+
+
+    def _module(self, names, visited=None, invoker_module_name=None):
+        iter_module = self.main_module
+        invoker_module_name = invoker_module_name or self.main_module.__name__
+        for module_name in names:
+            iter_module = self._import(iter_module, module_name, visited, invoker_module_name)
+        return iter_module
+
+    def import_module(self, s):
+        return self._module(s.split("."))
+
+
+def _compile_kont(stmts, filename):
+    src = pystmts_to_string(stmts)
+    try:
+        code = compile(src, filename, "exec")
+        return code
+    except SyntaxError as error:
+        raise TempyNativeCompileError(error.args)
+
+def compile_string(path, filename="<string>"):
+    '''
+    compile tempy string into compiled python bytecode(.pyc file)
+    '''
+    stmts = translate_string(path, filename=filename)
+    return _compile_kont(stmts, filename)
+
+def compile_file(path, filename=None):
+    '''
+    compile tempy file into compiled python bytecode(.pyc file)
+    '''
+    if filename is None:
+        filename = path
+    stmts = translate_file(path, filename=filename)
+    return _compile_kont(stmts, filename)

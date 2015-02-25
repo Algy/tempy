@@ -1,10 +1,11 @@
 from tag import is_tag_name, HTML_TAGS
-from lisn import loads, loads_file
+from lisn import loads, loads_file, LISNSyntaxException
 from lisn.utils import LISNVisitor
 from lisn.match import LISNPattern
 from functools import wraps
 from copy import copy
 from pprint import pprint
+from errors import TempyCompileError, TempySyntaxError, CompileError
 
 '''
 Utils
@@ -1093,35 +1094,12 @@ Conclusion (Return value, frozen)
 Data structures for compiling
 '''
 
-class CompException(Exception):
-    def __init__(self, error_objs):
-        Exception.__init__(self, error_objs)
-        self.args = tuple(error_objs)
-
-class NoMoreErrorAcceptableException(Exception):
+class NoMoreErrorAcceptable(Exception):
+    '''
+    Exception for internal use
+    '''
     pass
 
-
-class CompErrorObject:
-    def __init__(self, _type, msg, source_file, locinfo):
-        self._type = _type
-        self.msg = msg
-        self.source_file = source_file
-        self.locinfo = locinfo
-    
-    def __repr__(self):
-        return "<Error %s> %s in \"%s\" [line %d-%d, col %d-%d]"%(
-                self._type,
-                self.msg,
-                self.source_file,
-                self.locinfo["sline"],
-                self.locinfo["eline"],
-                self.locinfo["scol"],
-                self.locinfo["ecol"] - 1,
-            )
-
-                        
-    
 
 class IDHint:
     def __init__(self, original_name, name_source, usage):
@@ -1634,21 +1612,24 @@ class RuntimeStore:
 
 
 class Context:
-    def __init__(self, comp_env, config, rt_store):
+    def __init__(self, comp_env, config, rt_store, filename):
         self.comp_env = comp_env
         self.config = config
         self.rt_store = rt_store
         self.errors = []
+        self.filename = filename
 
     def add_error(self, error_obj):
         self.errors.append(error_obj)
         if self.config.max_error_cnt <= len(self.errors):
-            raise NoMoreErrorAcceptableException
+            raise NoMoreErrorAcceptable
 
     def any_error(self):
         return len(self.errors) > 0
 
 def set_comp_error(context, error_obj):
+    if not error_obj.filename:
+        error_obj.filename = context.filename
     context.add_error(error_obj)
 
 
@@ -1698,9 +1679,8 @@ def nt_trailer(translator, lisn, premise, context):
     
     if scope is None:
         set_comp_error(context,
-                       CompErrorObject("Scope",
+                       CompileError("Scope",
                                        "scope should be specified",
-                                       "<source>",
                                        lisn["locinfo"]))
         return error_conclusion()
 
@@ -1795,9 +1775,8 @@ def nt_name(translator, lisn, premise, context):
     use_return_value = premise.use_return_value
 
     def set_noreturn_error(name):
-        set_comp_error(context, CompErrorObject("NoReturnValue",
+        set_comp_error(context, CompileError("NoReturnValue",
                                                 "'%s' cannot have return value" % name,
-                                                "<source>",
                                                 lisn["locinfo"]))
 
     
@@ -1824,9 +1803,8 @@ def nt_name(translator, lisn, premise, context):
             name_id, info = context.comp_env.lookup_name(name)
         else:
             set_comp_error(context,
-                           CompErrorObject("UnboundVariable",
+                           CompileError("UnboundVariable",
                                            "Name '%s' is not found"%name,
-                                           "<source>",
                                            lisn["locinfo"]))
             return error_conclusion()
 
@@ -1839,9 +1817,8 @@ def nt_name(translator, lisn, premise, context):
     elif info.is_runtime_extern():
         return expr_conclusion(PyAttrAccess(PyMetaID(context.runtime_obj_id), name))
     elif info.is_expander() or info.is_converter():
-        err_obj = CompErrorObject("IllegalName",
+        err_obj = CompileError("IllegalName",
                                   repr(info) + " cannot be used as a variable",
-                                  "<source>",
                                   lisn["locinfo"])
         set_comp_error(context, err_obj)
         return error_conclusion()
@@ -1910,9 +1887,8 @@ def nt_assign(translator, lisn, premise, context):
         if python_native_literal(lvalue_name) or \
            python_control_name(lvalue_name):
             set_comp_error(context,
-                           CompErrorObject("IllegalAssignName",
+                           CompileError("IllegalAssignName",
                                            "cannot assign to %s"%lvalue_name,
-                                           "<source>",
                                            lisn["locinfo"]))
             return error_conclusion()
 
@@ -1987,10 +1963,9 @@ def nt_xexpr(translator, lisn, premise, context):
             return translate_pyimport_from(translator, lisn, Premise(False), context)
         else:
             set_comp_error(context,
-                           CompErrorObject(
+                           CompileError(
                                "UnknownHeadLabel",
                                "Unknown head label: %s"%head_label,
-                               "<source>",
                                lisn["locinfo"]))
             return error_conclusion()
     else:
@@ -2167,9 +2142,8 @@ def translate_branch(translator, lisn, premise, context):
 
     def set_branch_error(lisn, msg):
         set_comp_error(context,
-                       CompErrorObject("Branch",
+                       CompileError("Branch",
                                        msg,
-                                       "<source>",
                                        lisn["locinfo"]))
 
     success, error_reason, cond_pairs, else_lisn = branch_pat(lisn)
@@ -2284,9 +2258,8 @@ def xtranslate_seq(translator, node_list, premise, context):
                 def_name = force_name_to_head_expr(node)
                 if def_name is None:
                     set_comp_error(context,
-                                   CompErrorObject("DefName",
+                                   CompileError("DefName",
                                                    "Name of def node is not appropriate",
-                                                   "<source>",
                                                    node["locinfo"]))
                     success = False
                 else:
@@ -2374,9 +2347,8 @@ def translate_def(translator, lisn, premise, context):
             star_str = force_name(arg_info["star"])
             if star_str is None:
                 set_comp_error(context,
-                               CompErrorObject("FormalArgument",
+                               CompileError("FormalArgument",
                                                "Invalid star formal argument",
-                                               "<source>",
                                                lisn["head_expr"]["locinfo"]))
                 argument_test_success = False
         
@@ -2384,18 +2356,16 @@ def translate_def(translator, lisn, premise, context):
             dstar_str = force_name(arg_info["dstar"])
             if dstar_str is None:
                 set_comp_error(context,
-                               CompErrorObject("FormalArgument",
+                               CompileError("FormalArgument",
                                                "Invalid double-star formal argument",
-                                               "<source>",
                                                lisn["head_expr"]["locinfo"]))
                 argument_test_success = False
 
 
         if arg_info["has_damp"] or arg_info["has_amp"]:
             set_comp_error(context,
-                           CompErrorObject("NotSupported",
+                           CompileError("NotSupported",
                                            "& or && argument is not supported",
-                                           "<source>",
                                            lisn["head_expr"]["locinfo"]))
             argument_test_success = False
 
@@ -2403,9 +2373,8 @@ def translate_def(translator, lisn, premise, context):
         def_name = force_name(lisn["head_expr"])
         if def_name is None:
             set_comp_error(context,
-                           CompErrorObject("DefName",
+                           CompileError("DefName",
                                            "Name of def node is not appropriate",
-                                           "<source>",
                                            lisn["head_expr"]["locinfo"]))
             argument_test_success = False
         if argument_test_success:
@@ -2469,9 +2438,8 @@ def translate_def(translator, lisn, premise, context):
         else:
             no_duplication_found = False
             set_comp_error(context,
-                           CompErrorObject("FormalArgument",
+                           CompileError("FormalArgument",
                                "Duplicated name of formal argument: %s"%name,
-                               "<source>",
                                lisn["locinfo"]))
     if not no_duplication_found:
         return error_conclusion()
@@ -2708,9 +2676,8 @@ def translate_for(translator, lisn, premise, context):
 
     def error_handler(reason):
         set_comp_error(context,
-                       CompErrorObject("for",
+                       CompileError("for",
                                        reason,
-                                       "<source>",
                                        lisn["locinfo"]))
 
     return _translate_iter_head(translator, lisn, premise.copy(), context,
@@ -2749,9 +2716,8 @@ def translate_each(translator, lisn, premise, context):
 
     def error_handler(reason):
         set_comp_error(context,
-                       CompErrorObject("each",
+                       CompileError("each",
                                        reason,
-                                       "<source>",
                                        lisn["locinfo"]))
 
     return _translate_iter_head(translator, lisn, premise.copy(), context,
@@ -2784,9 +2750,8 @@ def translate_html_node(translator, lisn, premise, context):
 
     if not success:
         set_comp_error(context,
-                       CompErrorObject("HtmlNode",
+                       CompileError("HtmlNode",
                                        failure_reason,
-                                       "<source>",
                                        lisn["locinfo"]))
         return error_conclusion()
 
@@ -2809,7 +2774,10 @@ def translate_html_node(translator, lisn, premise, context):
                 None)
     return stmt_result_conclusion(stmts, mk)
 
+def _make_import_accessor(context, names):
+    return PyCall(PyMetaID(context.rt_store.importer_id), map(PyLiteral, names), None)
         
+
 def translate_import(translator, lisn, premise, context):
     assert check_multi_xexpr(lisn, "import")
 
@@ -2817,22 +2785,19 @@ def translate_import(translator, lisn, premise, context):
     names = force_dotted_name(head_node)
     if names is None:
         set_comp_error(context,
-                       CompErrorObject("IllegalImportName",
+                       CompileError("IllegalImportName",
                                        "Not appropriate import name",
-                                       "<source>", head_node["locinfo"]))
+                                       head_node["locinfo"]))
         return error_conclusion()
     else:
         last_name = names[-1]
-        accessor = PyMetaID(context.rt_store.importer_id)
-        for name in names:
-            accessor = PyAttrAccess(accessor, name)
+        accessor = _make_import_accessor(context, names)
         module_id = ensure_local_var_name(context.comp_env, last_name)
-
         assign = PyAssignmentToName(PyMetaID(module_id), accessor)
         return stmt_conclusion([assign])
 
 def set_error(context, lisn, _type, name):
-    set_comp_error(context, CompErrorObject(_type, name, "<source>", lisn["locinfo"]))
+    set_comp_error(context, CompileError(_type, name, lisn["locinfo"]))
 
 def translate_pyimport(translator, lisn, premise, context):
     head_node = lisn["head_expr"]
@@ -2917,9 +2882,9 @@ def translate_import_from(translator, lisn, premise, context):
         for obj in suite["exprs"]:
             if obj["param"]["type"] != "name":
                 set_comp_error(context,
-                               CompErrorObject("IllegalImportName",
+                               CompileError("IllegalImportName",
                                                "Invalid import name",
-                                               "<source>", suite["param"]["locinfo"]))
+                                               suite["param"]["locinfo"]))
                 success = False
                 continue
             dest_name = obj["param"]["name"]
@@ -2939,15 +2904,14 @@ def translate_import_from(translator, lisn, premise, context):
     module_names = force_dotted_name(head_node)
     if module_names is None:
         set_comp_error(context,
-                       CompErrorObject("IllegalImportName",
-                                       "Not appropriate import name",
-                                       "<source>", head_node["locinfo"]))
+                       CompileError("IllegalImportName",
+                                    "Not appropriate import name",
+                                    head_node["locinfo"]))
         return error_conclusion()
     else:
         last_name = module_names[-1]
-        accessor = PyMetaID(context.rt_store.importer_id)
-        for name in module_names:
-            accessor = PyAttrAccess(accessor, name)
+
+        accessor = _make_import_accessor(context, module_names)
         module_id = context.comp_env.issue_local_immediate()
 
         stmts = [PyAssignmentToName(PyMetaID(module_id), accessor)]
@@ -3114,44 +3078,7 @@ _PYTHON_RESERVED_WORDS = set([
 def is_python_reserved_word(name):
     return name in _PYTHON_RESERVED_WORDS 
 
-class TranslationResult:
-    def __init__(self, stmts, success=True, errors=None):
-        self.stmts = stmts
-        self.success = success
-        self.errors = errors or []
-        self.error_flooded = False
-
-    def set_error_flooded(self):
-        self.error_flooded = True  
-
-    def to_string(self, indent=4):
-        if not self.success:
-            raise ValueError("Cannot be converted due to translation failure")
-        
-        return "".join((stmt.to_string(indent, 0) for stmt in self.stmts))
-
-    def error_report(self):
-        if self.success:
-            raise ValueError("Attempted to get error report but translation has been done successfully")
-
-        result = ""
-        for err_obj in self.errors:
-            assert isinstance(err_obj, CompErrorObject)
-            result += "<Error %s> %s in \"%s\" [line %d-%d, col %d-%d]\n"%(
-                err_obj._type,
-                err_obj.msg,
-                err_obj.source_file,
-                err_obj.locinfo["sline"],
-                err_obj.locinfo["eline"],
-                err_obj.locinfo["scol"],
-                err_obj.locinfo["ecol"] - 1,
-            )
-        if self.error_flooded:
-            result += "Too many error occurred. Translation has been stopped.\n"
-        return result
-
-
-def main_translate(suite, config=None, extimport=None):
+def main_translate(suite, filename, config=None, extimport=None):
     config = config or Config()
     extimport = extimport or {}
     comp_env = CompEnv()
@@ -3179,7 +3106,8 @@ def main_translate(suite, config=None, extimport=None):
                                                  "local")))
     context = Context(comp_env,
                       config,
-                      RuntimeStore(runtime_obj_id, importer_id, line_info_id))
+                      RuntimeStore(runtime_obj_id, importer_id, line_info_id),
+                      filename)
 
     def_stmts = []
     success = True
@@ -3202,17 +3130,14 @@ def main_translate(suite, config=None, extimport=None):
             success = False 
         else:
             def_stmts += main_concl.preseq_stmts
-    except NoMoreErrorAcceptableException:
+    except NoMoreErrorAcceptable:
         error_flooded = True
 
     if context.errors:
         success = False
 
     if not success:
-        fres = TranslationResult(None, False, context.errors)
-        if error_flooded:
-            fres.set_error_flooded()
-        return fres
+        raise TempyCompileError(context.errors, error_flooded)
 
     dict_sym_id, dict_sym_info = comp_env.lookup_global_name("dict")
     assert dict_sym_info.is_global_scope_var()
@@ -3230,7 +3155,7 @@ def main_translate(suite, config=None, extimport=None):
                                      None,
                                      kw_arguments)))
     comp_env.contract_local_frame()
-    def_mk_tmp = PyDefun("tempy_main",
+    def_mk_tmp = PyDefun("__tempy_main__",
                          [PyMetaID(runtime_obj_id),
                           PyMetaID(importer_id),
                           PyMetaID(line_info_id)],
@@ -3275,21 +3200,48 @@ def main_translate(suite, config=None, extimport=None):
     for stmt in result_stmts:
         stmt.convert_meta_id(naive_renaming_driver, local_dict)
 
-    return TranslationResult(result_stmts)
+    return result_stmts
 
 
-def translate_string(s, config=None, extimport=None):
+def translate_string(s, config=None, extimport=None, filename="<string>"):
     '''
+    Translate tempy file to python code string
+
+    Returns -
+        compiled source(PyStmt list)
     extimport: 
         dict of 
             string(name in compiled source) to
                 ("module", string)
                 ("name", (string, string))
     '''
-    suite = loads(s)
-    return main_translate(suite, config, extimport)
+    try:
+        suite = loads(s)
+    except LISNSyntaxException as e:
+        raise TempySyntaxError(e.args)
+    return main_translate(suite, filename, config, extimport)
 
 
-def translate_file(filepath, config=None, extimport=None):
-    node = loads_file(filepath)
-    return main_translate(node, config, extimport)
+def translate_file(filepath, config=None, extimport=None, filename=None):
+    '''
+    Translate tempy file to python code string
+
+    Returns -
+        compiled source(PyStmt list)
+    extimport: 
+        dict of 
+            string(name in compiled source) to
+                ("module", string)
+                ("name", (string, string))
+    '''
+    try:
+        node = loads_file(filepath)
+    except TempySyntaxError as e:
+        raise TempySyntaxError(e.args)
+    return main_translate(node, 
+                          filename if filename is None else filepath, 
+                          config, 
+                          extimport)
+
+def pystmts_to_string(stmts, indent=4):
+    return "".join(stmt.to_string(indent, 0) for stmt in stmts)
