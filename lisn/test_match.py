@@ -101,7 +101,7 @@ class PatternTest(unittest.TestCase):
 
     def test_fun(self):
         fun_lisn = loads('''
-def go(a, b, c, d=2, e=3, *f, **g, &h, &&i)
+def go(a, b, c, d=2, d=7, e=3, *f, **g, &h, &&i)
 ''')["exprs"][0]["param"]
     
 
@@ -121,9 +121,7 @@ def go(a, b, c, d=2, e=3, *f, **g, &h, &&i)
                     __kleene_star__(body): $expr
                 '''
                 return res
-            '''
         pprint(pat_fun(fun_lisn))
-        '''
 
     def test_lets(self):
         lets_lisn = loads('''

@@ -21,9 +21,9 @@ int main() {
         lexres = lexer_lex(&lexer, &lexerr);
         token = lexres->token;
         text = lexres->text;
-        if(lexres.error_occured) {
+        if(lexres->error_occured) {
             printf("ERROR! error code=>%d\nerror msg=>%s\n", lexerr.code, lexerr.msg);
-            printf("(%d, %d)-(%d, %d)\n", lexres->st_lineno + 1, lexres->st_colno + 1, lexres->ed_lineno + 1, lexres->ed_colno);
+            printf("(%d, %d)-(%d, %d)\n", lexres->sline, lexres->scol, lexres->sline, lexres->ecol - 1);
             break;
         } else if(lexres->token == 0) {
             break;

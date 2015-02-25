@@ -24,11 +24,14 @@ class TempyModule:
         self._dict = _dict or {}
 
     def __getattr__(self, key):
-        return self._dict[key]
+        if key == "__repr__":
+            return lambda: "<TempyModule %s>"%repr(self._dict)
+        else:
+            return self._dict[key]
 
 def _get_ts_and_code(path, get_code=True):
     if isfile(path):
-        with open(path, "wb") as f:
+        with open(path, "rb") as f:
             magic_str = f.read(4)
             if len(magic_str) < 4 or py_compile.MAGIC != magic_str:
                 return None
@@ -46,6 +49,14 @@ def _get_ts_and_code(path, get_code=True):
     else:
         return None
 
+class _Importer:
+    def __init__(self, env, visited):
+        self.env = env
+        self.visited = visited
+
+    def __getattr__(self, attr):
+        return self.env._module(attr, self.visited)
+
 
 class Environment:
     def __init__(self, path):
@@ -62,22 +73,26 @@ class Environment:
         if module_name in visited:
             raise TempyImportError("circular dependency: %s"%module_name)
 
+        tpy_path = join(self.path, module_name + "." + TEMPY_EXT)
+        tpyc_path = join(self.path, module_name + "." + TEMPYC_EXT)
+        # print "TPY:", tpy_path
+        # print "TPYC:", tpyc_path
         if module_name in self.modules:
             return self.modules[module_name]
         else:
-            tpy_path = join(self.path, module_name + "." + TEMPY_EXT)
-            tpyc_path = join(self.path, module_name + "." + TEMPYC_EXT)
-
             success = True
             io_errno = None
             try:
                 test_res = _get_ts_and_code(tpyc_path)
                 if test_res:
+                    # print "FOUND tpyc file"
                     tpyc_timestamp, tpyc_code = test_res
                     if isfile(tpy_path):
+                        # print "tpy is ALSO there..."
                         try:
                             tpy_timestamp = long(getmtime(tpy_path))
                         except IOError:
+                            # print "!!1"
                             code = tpyc_code
                         else:
                             if tpy_timestamp > tpyc_timestamp:
@@ -85,22 +100,30 @@ class Environment:
                                 if _get_ts_and_code(tpyc_path, get_code=False):
                                     try:
                                         _write_code(tpyc_path, code)
+                                        # print "WRITED!#1"
                                     except IOError:
                                         pass
+                            else:
+                                code = tpyc_code
                     else:
                         code = tpyc_code
                 elif isfile(tpy_path):
+                    # print "tpy is there..."
                     code = compile_file(tpy_path)
-                    if not isfile(tpy_path) or _get_ts_and_code(tpyc_path, get_code=False): # XXX: telling 0x00 or MAGIC
+                    if not isfile(tpyc_path) or _get_ts_and_code(tpyc_path, get_code=False): # XXX: not thread-safe, try telling 0x00 or MAGIC
                         try:
                             _write_code(tpyc_path, code)
+                            # print "WRITED!#2"
                         except IOError:
                             pass
                 else:
+                    # print "FS NOT FOUND"
                     success = False
             except IOError as error:
                 io_errno = error.errno
-                success = False
+                # print "ERRORNO NFOUND"
+                raise
+                # success = False
 
             if not success:
                 err_msg = "Cannot Import the module %s"%module_name
@@ -112,15 +135,7 @@ class Environment:
                 gbl = {}
                 exec(code, gbl, lcl)
 
-                myself = self
-                exec_result = lcl['tempy_main'](None,
-                                                '''
-                                                type("Importer",
-                                                     (object, ),
-                                                     {"__getattr__":
-                                                         lambda self, n: myself._module(n, visited.union([module_name]))})(),
-                                                 ''',
-                                                None) # TODO 
+                exec_result = lcl['tempy_main'](None, _Importer(self, visited.union([module_name])), None)
                 mod = TempyModule(module_name, exec_result)
                 self.modules[module_name] = mod
                 return mod
@@ -139,6 +154,7 @@ def _write_code(filename, codeobject):
 def _compile_kont(tr_res):
     if tr_res.success:
         src = tr_res.to_string()
+        # print src
         try:
             code = compile(src, "<code>", "exec")
             return code

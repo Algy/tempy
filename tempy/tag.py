@@ -16,6 +16,11 @@ HTML_TAGS = ['html',
          'article',
          'aside',
          'h1',
+         'h2',
+         'h3',
+         'h4',
+         'h5',
+         'h6',
          'header',
          'footer',
          'address',
@@ -121,9 +126,9 @@ def _is_whitespace(s):
     return s == " " or s == "\t" or s == "\n"
 
 def _escape_string(val):
-    imd_str = val.replace("<", "&lt;")\
-                 .replace(">", "&gt;")\
-                 .replace("&", "&amp;")
+    imd_str = val.replace("&", "&amp;")\
+                 .replace("<", "&lt;")\
+                 .replace(">", "&gt;") 
     result = imd_str
     '''
     imd_str_len = len(imd_str)
@@ -204,7 +209,7 @@ class Tag:
             return "TAG <%s ...(%d subtags)>"%(self.tag_name, len(self.sub_tags))
 
     def __str__(self):
-        return self.emit_html(self)
+        return self.emit_html()
 
     def emit_html(self, indent=2, acc_indent=0):
         sub_tags_len = len(self.sub_tags)
