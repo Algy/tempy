@@ -189,6 +189,19 @@ def flatten_tags(val):
     iterate(val)
     return result
 
+class RawString:
+    def __init__(self, dummy_attr_dict, *s):
+        self.s = s
+
+    def __repr__(self):
+        return "<RawString %s>"%repr(self.s)
+    
+    def __str__(self):
+        return repr(self.s)
+
+    def emit_html(self, indent=4, acc_indent=0):
+        return " "*acc_indent + "\n".join(self.s) + "\n"
+
 
 class Tag:
     def __init__(self, tag_name, attr_dict, *sub_tags):
@@ -241,7 +254,9 @@ class Tag:
 
 class _TagPoolSig:
     def __getattr__(self, tag_name):
-        if tag_name.lower() in _TAG_SET:
+        if tag_name == "rawstring":
+            return RawString
+        elif tag_name.lower() in _TAG_SET:
             return lambda *args, **kwds: Tag(tag_name, *args, **kwds)
         else:
             raise ValueError("{0} is not appropriate tag".format(tag_name))

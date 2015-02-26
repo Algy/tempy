@@ -1461,12 +1461,19 @@ def stmt_result_conclusion(stmts, result_expr, comment=None):
                       error=False,
                       comment=comment)
 
+_cached_error_conclusion = Conclusion(None,
+                                      None,
+                                      error=True,
+                                      comment=None)
 def error_conclusion(comment=None):
-    conclusion = Conclusion(None,
-                            None,
-                            error=True,
-                            comment=comment)
-    return conclusion
+    if comment is None:
+        return _cached_error_conclusion
+    else:
+        conclusion = Conclusion(None,
+                                None,
+                                error=True,
+                                comment=comment)
+        return conclusion
 
 
 def noreturn_conclusion(conclusions):
@@ -1577,7 +1584,8 @@ def integrate_list(comp_env, conclusions):
         (
             bool, # success?
             stmt list, # preseq_stmts
-            (string, expr) list # result_pairs
+            expr list, # results
+            expr list # used_imd_ids
         }
     '''
     preseq_stmts = []
@@ -2094,15 +2102,15 @@ def branch_pat(case, default):
     '''
 
     @case
-    def f(obj):
+    def f(predicates, consequents):
         '''
         if>
             __kleene_plus__(predicates): $expr
         --
             __kleene_plus__(consequents): $expr
         '''
-        predicates = [d["expr"] for d in obj["predicates"]]
-        consequents = [d["expr"] for d in obj["consequents"]]
+        predicates = [d["expr"] for d in predicates]
+        consequents = [d["expr"] for d in consequents]
         if len(predicates) == len(consequents):
             return (True, "", zip(predicates, consequents), None)
         elif len(predicates) + 1 == len(consequents):
@@ -2215,7 +2223,7 @@ def cond_case_pat(case, default):
     '''
 
     @case
-    def f(obj):
+    def f(cases, else_opt):
         '''
         cond:
             __kleene_star__(cases):
@@ -2227,10 +2235,10 @@ def cond_case_pat(case, default):
         '''
         cases = [(case_obj["case_expr"],
                   [d["expr"] for d in case_obj["case_body"]])
-                 for case_obj in obj["cases"]]
+                 for case_obj in cases]
 
-        if obj["else_opt"]:
-            else_body = [d["expr"] for d in obj["else_opt"]["else_body"]]
+        if else_opt:
+            else_body = [d["expr"] for d in else_opt["else_body"]]
         else:
             else_body = None
 
@@ -2530,7 +2538,7 @@ def lambda_pat(case, default):
     '''
 
     @case
-    def lam(obj):
+    def lam(pargs, karg, star, dstar, body):
         '''
         lambda>
             kleene_star(parg): NAME$name
@@ -2540,11 +2548,11 @@ def lambda_pat(case, default):
         --
             __kleene_plus__(body): $expr
         '''
-        parg = [x["name"] for x in obj["parg"]]
-        karg = obj["karg"]["__rest__"]
-        star = obj["star"]["name"] if obj["star"] else None
-        dstar = obj["dstar"]["name"] if obj["dstar"] else None
-        body = [x["expr"] for x in obj["body"]]
+        parg = [x["name"] for x in parg]
+        karg = karg["__rest__"]
+        star = star["name"] if star else None
+        dstar = dstar["name"] if dstar else None
+        body = [x["expr"] for x in body]
 
         return (True, "", parg, karg, star, dstar, body)
 
@@ -2563,7 +2571,7 @@ def translate_lambda(translator, lisn, premise, context):
 @LISNPattern
 def for_pat(case, default):
     @case
-    def fr(obj):
+    def fr(elem, iterable, opt, body, **kwds):
         '''
         NAME$for>
             NAME$elem
@@ -2574,18 +2582,16 @@ def for_pat(case, default):
         --
             __kleene_plus__(body): $expr
         '''
-        elem = obj["elem"]
-        iterable = obj["iterable"]
-        index = obj["opt"]["index_name"] if obj["opt"] else None
-        body = [x["expr"] for x in obj["body"]]
+        index = opt["index_name"] if opt else None
+        body = [x["expr"] for x in body]
 
         return (True, "", elem, index, iterable, body)
 
     @case
-    def fr2(obj):
+    def fr2(elems, opt, body, iterable, **kwds):
         '''
         NAME$for>
-            pair>
+            _>
                 __kleene_plus__(elems): $elem
             keyword -> seq:
                 __optional__(opt):
@@ -2595,13 +2601,11 @@ def for_pat(case, default):
             __kleene_plus__(body): $expr
         '''
         raise Exception
-        elem = [s["elem"] for s in obj["elems"]]
-        iterable = obj["iterable"]
-        index = obj["opt"]["index_name"] if obj["opt"] else None
-        body = [x["expr"] for x in obj["body"]]
+        elem = [s["elem"] for s in elems]
+        index = opt["index_name"] if opt else None
+        body = [x["expr"] for x in body]
 
         return (True, "", elem, index, iterable, body)
-
 
     @default
     def el():
@@ -2726,16 +2730,16 @@ def translate_each(translator, lisn, premise, context):
 @LISNPattern
 def html_node_pat(case, default):
     @case
-    def cond(obj):
+    def cond(html_node, attr, body):
         '''
         NAME$html_node>
             keyword -> dict(attr)
         --
             __kleene_star__(body): $expr
         '''
-        tag_name = obj["html_node"]
-        attr = obj["attr"]["__rest__"]
-        body = [x["expr"] for x in obj["body"]]
+        tag_name = html_node
+        attr = attr["__rest__"]
+        body = [x["expr"] for x in body]
         return (True, "", tag_name, attr, body)
 
     @default
@@ -2819,27 +2823,27 @@ def translate_pyimport(translator, lisn, premise, context):
 @LISNPattern
 def pyimport_from_pat(case, default):
     @case
-    def c1(obj):
+    def c1(_from, imported_names):
         '''
-        pyimport_from $from:
-            __kleene_plus__(names):
+        pyimport_from $_from:
+            __kleene_plus__(imported_names):
                 __or__(opt):
                     NAME$src_name
                     NAME$src_name -> NAME$dest_name
         '''
-        head = obj["from"]
-        names = force_dotted_name(head)
+        names = force_dotted_name(_from)
 
         if names is None:
             return (False, "Bad pyimport name", None, None)
 
-        imported_names = []
-        for x in obj["names"]:
+
+        result = []
+        for x in imported_names:
             import_obj = x["opt"]
             if "dest_name" in import_obj:
-                imported_names.append((import_obj["src_name"], import_obj["dest_name"]))
+                result.append((import_obj["src_name"], import_obj["dest_name"]))
             else:
-                imported_names.append(import_obj["src_name"])
+                result.append(import_obj["src_name"])
         return (True, "", names, imported_names)
     @default
     def d():
@@ -2933,11 +2937,11 @@ def translate_import_from(translator, lisn, premise, context):
 @LISNPattern
 def raise_pat(case, default):
     @case
-    def c1(obj):
+    def c1(expr):
         '''
         raise ($expr)
         '''
-        return obj["expr"]
+        return expr
 
     @case
     def c2(obj):
@@ -2972,10 +2976,10 @@ def translate_raise(translator, lisn, premise, context):
 @LISNPattern
 def try_pat(case, default):
     @case
-    def with_fallthrough(obj):
+    def with_fallthrough(_with, body, exc_part):
         '''
         try>
-            keyword -> dict(with)
+            keyword -> dict(_with)
         --
             __kleene_star__(body): $expr
             __kleene_star__(exc_part):
@@ -2988,7 +2992,7 @@ def try_pat(case, default):
 @LISNPattern
 def class_pat(case, default):
     @case
-    def c1():
+    def c1(parent, decls):
         '''
         class x>
             __optional__(parent): NAME$name
@@ -3000,12 +3004,119 @@ def class_pat(case, default):
 
 
     
+@LISNPattern
+def list_like_pat(case, default):
+    @case
+    def c1(decl_s, decl_star, decl_amp, decl_v, **kwds):
+        '''
+        NAME$__head__>
+            __kleene_star__(decl_s): $expr
+            *__optional__(decl_star): $expr
+            &__optional__(decl_amp): $expr
+        --
+            __kleene_star__(decl_v): $expr
+        '''
+        decls = [x["expr"] for x in decl_s]
+        if decl_star:
+            decls.append(decl_star["expr"])
+        if decl_amp:
+            decls.append(decl_amp["expr"])
+        decls.extend([x["expr"] for x in decl_v])
+        return decls
+
+    @default
+    def df():
+        return None
+
+
+def make_list_like_translator(factory, debug_tag):
+    def translate_list(translator, lisn, premise, context):
+        decls = list_like_pat(lisn)
+        if decls is None:
+            set_error(context, lisn, debug_tag, "Bad form")
+            return error_conclusion()
+        concls = [translator(decl, Premise(True), context) for decl in decls]
+        success, preseq_stmts, results, _ = integrate_list(context.comp_env, concls)
+
+        if not success:
+            return error_conclusion()
+        return stmt_result_conclusion(preseq_stmts, factory(results))
+    return translate_list
 
 
 
+@LISNPattern
+def dict_pat(case, default):
+    @case
+    def c1(vkw1, vkw2, **kwds):
+        '''
+        NAME$__double_dollar__>
+            keyword -> seq:
+                __kleene_star__(vkw1): 
+                    NAME$key -> $value
+        --
+            __kleene_star__(vkw2): 
+                NAME$key -> $value
+        '''
 
 
-    
+        k = []
+        for x in vkw1 + vkw2:
+            k.append(expr_conclusion(PyLiteral(x["key"])))
+            k.append(x["value"])
+        return k
+
+    @case
+    def c2(kvpairs_s, kvpairs_v, **kwds):
+        '''
+        NAME$__double_dollar__>
+            __kleene_star__(kvpairs_s):
+                $key
+                $value
+        --
+            __kleene_star__(kvpairs_v):
+                $key
+                $value
+        '''
+        kvpairs = []
+        for x in kvpairs_s:
+            kvpairs.append(x["key"])
+            kvpairs.append(x["value"])
+
+        for x in kvpairs_v:
+            kvpairs.append(x["key"])
+            kvpairs.append(x["value"])
+        return kvpairs
+
+    @default
+    def df():
+        return None
+
+
+def translate_dict_expr(translator, lisn, premise, context):
+    kvpairs = dict_pat(lisn)
+    if kvpairs is None:
+        set_error(context, lisn, "Dict", "Bad Form")
+        return error_conclusion()
+
+    kvconcls = []
+
+    for decl in kvpairs:
+        if isinstance(decl, Conclusion):
+            kvconcls.append(decl)
+        else:
+            kvconcls.append(translator(decl, Premise(True), context))
+    success, preseq_stmts, results, _ = integrate_list(context.comp_env, kvconcls)
+    if not success:
+        return error_conclusion()
+    idx = 0
+    _dict = {}
+    while idx < len(results):
+        _dict[results[idx]] = results[idx + 1]
+        idx += 2
+    return stmt_result_conclusion(preseq_stmts, PyDictExpr(_dict))
+
+
 
 def add_python_native(comp_env):
     glob = {}
@@ -3035,12 +3146,25 @@ def setup_base_syntax(comp_env):
     comp_env.add_global("each",
                         Converter(translate_each,
                                   "each"))
+    comp_env.add_global("_",
+                        Converter(make_list_like_translator(PyTupleExpr, "Tuple"),
+                                  "_"))
+    comp_env.add_global("$",
+                        Converter(make_list_like_translator(PyListExpr, "List"),
+                                  "$"))
+    comp_env.add_global("$$",
+                        Converter(translate_dict_expr,
+                                  "$$"))
 
 def setup_html_runtime(comp_env):
     for tag_name in HTML_TAGS:
         comp_env.add_global(tag_name,
                             Converter(translate_html_node,
                                       tag_name))
+    comp_env.add_global("rawstring",
+                        Converter(translate_html_node,
+                                  "rawstring"))
+
 
 _PYTHON_RESERVED_WORDS = set([
     'and',
@@ -3202,6 +3326,22 @@ def main_translate(suite, filename, config=None, extimport=None):
 
     return result_stmts
 
+def _raise_formated_syntax_error(err, filename):
+    if isinstance(err.args, basestring) or len(err.args) <= 1:
+        raise TempySyntaxError(err.args)
+    else:
+        locinfo = err.args[1]
+        errmsg = "syntax error in \"%s\" [line %d-%d, col %d-%d]"%(
+                filename or "",
+                locinfo["sline"],
+                locinfo["eline"],
+                locinfo["scol"],
+                locinfo["ecol"] - 1,
+            )
+        raise TempySyntaxError((errmsg,))
+
+
+
 
 def translate_string(s, config=None, extimport=None, filename="<string>"):
     '''
@@ -3218,7 +3358,7 @@ def translate_string(s, config=None, extimport=None, filename="<string>"):
     try:
         suite = loads(s)
     except LISNSyntaxException as e:
-        raise TempySyntaxError(e.args)
+        _raise_formated_syntax_error(e, filename)
     return main_translate(suite, filename, config, extimport)
 
 
@@ -3234,12 +3374,13 @@ def translate_file(filepath, config=None, extimport=None, filename=None):
                 ("module", string)
                 ("name", (string, string))
     '''
+    filename = filename or filepath
     try:
         node = loads_file(filepath)
-    except TempySyntaxError as e:
-        raise TempySyntaxError(e.args)
+    except LISNSyntaxException as e:
+        _raise_formated_syntax_error(e, filename)
     return main_translate(node, 
-                          filename if filename is None else filepath, 
+                          filename,
                           config, 
                           extimport)
 

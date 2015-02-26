@@ -792,7 +792,7 @@ class LISNPattern:
         for test_pat, fun in self.test_fun_pairs:
             success, result = test_pat.match(lisn)
             if success:
-                return fun(result)
+                return fun(**result)
 
         if self.default_case_fun is self._default_placeholder:
             raise LISNPatternException("No pattern is matched"
