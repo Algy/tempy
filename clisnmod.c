@@ -580,11 +580,21 @@ static PyObject* file2lisn(PyObject *self, PyObject* args) {
     fclose(fp);
 
     if(err.error_occured) {
+        PyObject *err_tuple;
+
+        err_tuple = Py_BuildValue("sN",
+            err.err_msg,
+            Py_BuildValue("{s:i,s:i,s:i,s:i}",
+                "sline", err.sline,
+                "eline", err.eline,
+                "scol", err.scol,
+                "ecol", err.ecol));
         if(err.is_lexerr) {
-            PyErr_SetString(LISNLexerException, err.err_msg);
+            PyErr_SetObject(LISNLexerException, err_tuple);
         } else {
-            PyErr_SetString(LISNParserException, err.err_msg);
+            PyErr_SetObject(LISNParserException, err_tuple);
         }
+        Py_DECREF(err_tuple);
         return NULL;
     } 
 
@@ -614,7 +624,7 @@ PyMODINIT_FUNC initclisn(void) {
     PyModule_AddObject(mod, "LISNLexerException", LISNLexerException);
 
 
-    LISNParserException = PyErr_NewException("clisn.LISNParserException", LISNParserException, NULL);
+    LISNParserException = PyErr_NewException("clisn.LISNParserException", LISNSyntaxException, NULL);
     Py_INCREF(LISNParserException);
     PyModule_AddObject(mod, "LISNParserException", LISNParserException);
 }
