@@ -56,8 +56,9 @@ def _write_code(filename, codeobject):
 def _naive_logger(x): print("[TempyEnvironmentLog]", x)
 
 class CompileOption:
-    def __init__(self, use_tpyc=True, verbose=False, logger=_naive_logger):
+    def __init__(self, use_tpyc=True, write_py=False, verbose=False, logger=_naive_logger):
         self.use_tpyc = use_tpyc
+        self.write_py = write_py
         self.verbose = verbose
         self.logger = logger
 
@@ -97,6 +98,14 @@ class ModuleFetcher:
                 return (res, True)
         return None
 
+
+def _exchange_ext(s, new_ext):
+    rdot_idx = s.rfind(".")
+    if rdot_idx == -1:
+        return s + "." + new_ext 
+    else:
+        return s[:rdot_idx] + "." + new_ext
+
 class Environment:
     def __init__(self, pwd, main_name="__main__", module_fetcher=None, compile_option=None):
         self.module_fetcher = module_fetcher or ModuleFetcher(pwd)
@@ -107,6 +116,14 @@ class Environment:
 
     def _code_generation(self, tpy_path, tpyc_path, write_to_pyc=True):
         code = compile_file(tpy_path)
+
+        if self.compile_option.write_py:
+            py_path = _exchange_ext(tpyc_path, "py")
+            try:
+                with open(py_path, "w") as f:
+                    f.write(pystmts_to_string(translate_file(tpy_path)))
+            except IOError as err:
+                self.compile_option.log("IOError occured while writing .py file(%s): %s"%(tpyc_path, str(err)))
         if write_to_pyc:
             try:
                 _write_code(tpyc_path, code)
@@ -163,11 +180,7 @@ class Environment:
             if pair is None:
                 raise TempyImportError("No such module named '%s'"%module_name)
             tpy_path, is_shared = pair
-            rdot_idx = tpy_path.rfind(".")
-            if rdot_idx == -1:
-                tpyc_path = tpy_path + "." + TEMPYC_EXT
-            else:
-                tpyc_path = tpy_path[:rdot_idx] + "." + TEMPYC_EXT
+            tpyc_path = _exchange_ext(tpy_path, TEMPYC_EXT)
 
             try:
                 code = self._retrieve_code(tpy_path, tpyc_path)
@@ -175,7 +188,7 @@ class Environment:
                 raise
             except Exception as error:
                 err_info = str(error)
-                err_msg = "Cannot import the module named '%s': %s"%(module_name, err_info)
+                err_msg = "Cannot import the module named '%s': %s\n%s"%(module_name, err_info, traceback.format_exc())
                 raise TempyImportError(err_msg)
             else:
                 lcl = {} # local
@@ -208,8 +221,10 @@ class Environment:
             iter_module = self._import(iter_module, module_name, visited, invoker_module_name)
         return iter_module
 
-    def import_module(self, s):
-        return self._module(s.split("."))
+    def module(self, dotted_str):
+        return self._module(dotted_str.split("."))
+
+
 
 
 def _compile_kont(stmts, filename):
