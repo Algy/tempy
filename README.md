@@ -1,6 +1,55 @@
 Tempy
 ===
-python HTML template engine and yet another meta-language for python
+Python HTML template engine and yet another meta-language for python
+
+Installation
+==
+In the root of project directory, type
+```bash
+python setup.py install
+```
+GNU flex, the lexer gernator, is required to install this.
+
+Basic example
+==
+
+Let’s assume that working directory is composed like the following structure.
+```
+run.py
+tempy-templates/
+  index.tpy
+  outline.tpy
+  factorial.tpy
+```
+As shown above, name of tempy file ends with “.tpy”. 
+
+
+```
+MainTemplate = html:
+  head:
+		title: "First example" # comment starts with sharp(#), as in Python.
+	body:
+		h2: 'Hello World!' # You can wrap content with either single quotation mark or double one.
+		h3:
+			"This is content in h3 element" # You can also specify content at the next line with one-indent deeper
+		p: 
+			'''
+			It is the first example of Tempy library, HTML template-engine.
+			With a sequence of three single or double quotation marks, you can write multi-line content.
+			'''
+```
+
+And code into run.py like the following stub
+```python
+from tempy import Environment
+env = Environment("tempy-templates")
+
+index_module = env.module("index")
+with open("result.html", "w") as f:
+    f.write(str(index_module.MainTemplate))
+```
+Note that “Environment.module(..)” method doesn’t accept file name with extension. In other words, you should specify filename without its extention (“index” in this case) instead of full filename(“index.tpy” in this case)
+
 
 ....Under construction
 
