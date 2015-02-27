@@ -123,7 +123,7 @@ def MainTemplate(author_list, footer_dict):
 				td: "Country"
 				td: "Note"
 		tbody:
-			each(author_obj, in = author_list):
+			$each(author_obj, in = author_list):
 				tr:
 					td: author_obj.name
 					td: author_obj.country
