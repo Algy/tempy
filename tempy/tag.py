@@ -197,7 +197,7 @@ class RawString:
         return "<RawString %s>"%repr(self.s)
     
     def __str__(self):
-        return repr(self.s)
+        return self.emit_html()
 
     def emit_html(self, indent=4, acc_indent=0):
         return " "*acc_indent + "\n".join(self.s) + "\n"
