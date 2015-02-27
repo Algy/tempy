@@ -1716,7 +1716,7 @@ def nt_trailer(translator, lisn, premise, context):
     elif trailer_type == "slice":
         left_slice = lisn["left_slice"]
         right_slice = lisn["right_slice"]
-        
+
         left_slice_concl = translator(left_slice,
                                       Premise(True),
                                       context) \
@@ -2203,10 +2203,10 @@ def translate_branch(translator, lisn, premise, context):
     else:
         else_concl = expr_conclusion(PyLiteral(None))
 
-    iter_if_stmt.else_stmt_list = conclusion_to_stmts(else_concl)
-
     if not success:
         return error_conclusion()
+    iter_if_stmt.else_stmt_list = conclusion_to_stmts(else_concl)
+
 
     preseq_stmts.append(if_stmt)
     if use_return_value:
@@ -3379,6 +3379,7 @@ def translate_file(filepath, config=None, extimport=None, filename=None):
         node = loads_file(filepath)
     except LISNSyntaxException as e:
         _raise_formated_syntax_error(e, filename)
+
     return main_translate(node, 
                           filename,
                           config, 
