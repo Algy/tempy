@@ -2102,9 +2102,9 @@ def branch_pat(case, default):
     '''
 
     @case
-    def f(predicates, consequents):
+    def f(predicates, consequents, **kwds):
         '''
-        if>
+        NAME$head>
             __kleene_plus__(predicates): $expr
         --
             __kleene_plus__(consequents): $expr
@@ -3150,16 +3150,31 @@ def setup_base_syntax(comp_env):
     comp_env.add_global("if",
                         Converter(translate_branch,
                                   "if"))
+    comp_env.add_global("$if",
+                        Converter(translate_branch,
+                                  "if"))
     comp_env.add_global("let",
+                        Converter(translate_let,
+                                  "let"))
+    comp_env.add_global("$let",
                         Converter(translate_let,
                                   "let"))
     comp_env.add_global("seq",
                         Converter(translate_seq,
                                   "seq"))
+    comp_env.add_global("$seq",
+                        Converter(translate_seq,
+                                  "seq"))
     comp_env.add_global("for",
                         Converter(translate_for,
                                   "for"))
+    comp_env.add_global("$for",
+                        Converter(translate_for,
+                                  "for"))
     comp_env.add_global("each",
+                        Converter(translate_each,
+                                  "each"))
+    comp_env.add_global("$each",
                         Converter(translate_each,
                                   "each"))
     comp_env.add_global("_",
