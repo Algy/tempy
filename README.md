@@ -25,17 +25,17 @@ As shown above, name of tempy files ends with “.tpy”. Write below code into 
 ```
 MainTemplate = html:
   head:
-		title: "First example" # comment starts with sharp(#), as in Python.
-	body:
-		h2: 'Hello World!' # You can wrap content with either single quotation mark or double one.
-		h3:
-			"This is content in h3 element" # You can also specify content at the next line with one-indent deeper
-		p(id="main-content", class="foo bar"): 
-			'''
-			It is the first example of Tempy library, HTML template-engine.
-			With a sequence of three single or double quotation marks, you can write multi-line content.
-			'''
-		a(href="#"): "external link"
+    title: "First example" # comment starts with sharp(#), as in Python.
+  body:
+    h2: 'Hello World!' # You can wrap content with either single quotation mark or double one.
+    h3:
+      "This is content in h3 element" # You can also specify content at the next line with one-indent deeper
+    p(id="main-content", class="foo bar"): 
+	    '''
+	    It is the first example of Tempy library, HTML template-engine.
+	    With a sequence of three single or double quotation marks, you can write multi-line content.
+	    '''
+    a(href="#"): "external link"
 ```
 
 And, in run.py, write the following stub
