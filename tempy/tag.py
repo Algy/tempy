@@ -229,7 +229,10 @@ class Tag:
         tag_name = self.tag_name
         indent_space = " " * acc_indent
         
-        res = indent_space + "<%s"%tag_name
+        res = ""
+        if self.tag_name == 'html':
+            res += indent_space + "<!doctype html>\n"
+        res += indent_space + "<%s"%tag_name
         if self.attr_dict:
             for (k, v) in self.attr_dict.items():
                 if isinstance(v, bool):
