@@ -1646,7 +1646,7 @@ def set_comp_error(context, error_obj):
 #
 
 node_translator = LISNVisitor()
-def stmtify_expr(expr, use_return_value, imd_id):
+def stmtify_expr(expr, use_return_value, imd_id=None):
     '''
     CompEnv x bool x id -> stmt list
     '''
@@ -2730,27 +2730,30 @@ def translate_each(translator, lisn, premise, context):
 @LISNPattern
 def html_node_pat(case, default):
     @case
-    def cond(html_node, attr, body):
+    def cond(html_node, attr, updater, body):
         '''
         NAME$html_node>
             keyword -> dict(attr)
+            **__optional__(updater): $expr
         --
             __kleene_star__(body): $expr
         '''
         tag_name = html_node
         attr = attr["__rest__"]
         body = [x["expr"] for x in body]
-        return (True, "", tag_name, attr, body)
+        if updater:
+            updater = updater["expr"]
+        return (True, "", tag_name, attr, body, updater)
 
     @default
     def el():
-        return (False, "Bad Form", None, None, None)
+        return (False, "Bad Form", None, None, None, None)
 
 
 HTML_TAGPOOL_NAME = "__html__"
 def translate_html_node(translator, lisn, premise, context):
     tagpool_id, _ = context.comp_env.lookup_global_name(HTML_TAGPOOL_NAME)
-    success, failure_reason, tag_name, attr, body = html_node_pat(lisn)
+    success, failure_reason, tag_name, attr, body, updater = html_node_pat(lisn)
 
     if not success:
         set_comp_error(context,
@@ -2763,13 +2766,26 @@ def translate_html_node(translator, lisn, premise, context):
     attr_keys = [k for k, _ in attr_pairs]
     success, stmts, param_exprs = \
         ltranslate_in_app_order(translator,
-                                [v for _, v in attr_pairs] + body,
+                                [v for _, v in attr_pairs] + 
+                                body + 
+                                ([updater] if updater else []),
                                 context)
     attr_exprs = param_exprs[:len(attr_pairs)]
-    body_exprs = param_exprs[len(attr_pairs):]
+    body_exprs = param_exprs[len(attr_pairs):-1] if updater else param_exprs[len(attr_pairs):]
+    updater_expr = param_exprs[-1] if updater else None
 
-
-    caller_pargs = [PyDictExpr(dict(zip(map(PyLiteral, attr_keys), attr_exprs)))]
+    dict_expr = PyDictExpr(dict(zip(map(PyLiteral, attr_keys), attr_exprs)))
+    attr_expr = None
+    if updater is None:
+        attr_expr = dict_expr
+    else:
+        local_imd = context.comp_env.issue_local_immediate()
+        stmts.extend(stmtify_expr(dict_expr, True, local_imd))
+        stmts.extend(stmtify_expr(PyCall(PyAttrAccess(PyMetaID(local_imd), "update"),
+                                         [updater_expr], []),
+                                  False))
+        attr_expr = PyMetaID(local_imd)
+    caller_pargs = [attr_expr]
     caller_pargs.extend(body_exprs)
 
     mk = PyCall(PyAttrAccess(PyMetaID(tagpool_id),
