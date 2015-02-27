@@ -107,7 +107,8 @@ def _exchange_ext(s, new_ext):
         return s[:rdot_idx] + "." + new_ext
 
 class Environment:
-    def __init__(self, pwd, main_name="__main__", module_fetcher=None, compile_option=None):
+    def __init__(self, pwd, cache_module=True, main_name="__main__", module_fetcher=None, compile_option=None):
+        self.cache_module = cache_module
         self.module_fetcher = module_fetcher or ModuleFetcher(pwd)
         self.main_module = TempyModule(main_name, self, pwd)
         self.shared_dict = {}
@@ -207,10 +208,11 @@ class Environment:
                                                               ),
                                                     None)
                 mod = TempyModule(current_module_name, self, path_join(parent_module.__dir__, module_name), exec_result)
-                if is_shared:
-                    self.shared_dict[module_name] = mod
-                else:
-                    parent_module.__submodule__[module_name] = mod
+                if self.cache_module:
+                    if is_shared:
+                        self.shared_dict[module_name] = mod
+                    else:
+                        parent_module.__submodule__[module_name] = mod
                 return mod
 
 
