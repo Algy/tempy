@@ -20,8 +20,6 @@ Let’s assume that working directory is composed like the following structure.
 run.py
 tempy-templates/
   index.tpy
-  outline.tpy
-  factorial.tpy
 ```
 As shown above, name of tempy files ends with “.tpy”. Write below code into index.tpy.
 ```
