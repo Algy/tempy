@@ -2,7 +2,7 @@ from pprint import pprint
 from clisn import loads
 from itertools import chain
 from functional import car, cdr, cons, llist_to_list, list_to_llist, \
-                       llmap
+                       llmap, LNone
 
 def _pull_left_string(s):
     def _is_space(c):
@@ -196,7 +196,7 @@ class XExprMatcher(LISNMatcher):
 
 
 def _convert_info_dict(info_dict):
-    if info_dict is None:
+    if info_dict is LNone:
         return ()
     elif isinstance(info_dict, dict):
         result = {}
@@ -206,7 +206,7 @@ def _convert_info_dict(info_dict):
     elif isinstance(info_dict, tuple):
         p = info_dict
         result = []
-        while p is not None:
+        while p is not LNone:
             result.append(_convert_info_dict(car(p)))
             p = cdr(p)
         return tuple(result)
@@ -220,7 +220,7 @@ class PosMatcher:
         lisn_llist = list_to_llist(lisn_list) 
         info_dict = {}
 
-        success = self._match_pos(lisn_llist, None, info_dict)
+        success = self._match_pos(lisn_llist, LNone, info_dict)
         if success:
             return (True, _convert_info_dict(info_dict))
         else:
@@ -257,9 +257,9 @@ class KeywordMatcher:
 #
 
 def _follow_cont(lisn_llist, seq_cont):
-    if lisn_llist is None and seq_cont is None:
+    if lisn_llist is LNone and seq_cont is LNone:
         return True
-    elif seq_cont is None:
+    elif seq_cont is LNone:
         return False
     else:
         mat, scope_dict = car(seq_cont)
@@ -272,7 +272,7 @@ class PosSingle(PosMatcher):
         self.label_matcher = label_matcher
 
     def _match_pos(self, lisn_llist, seq_cont, info_dict):
-        if lisn_llist is None:
+        if lisn_llist is LNone:
             return False
         else:
             item_to_be_matched = car(lisn_llist)
@@ -317,7 +317,7 @@ class PosOr(PosMatcher):
 
 class PosNone(PosMatcher):
     def _match_pos(self, lisn_llist, seq_cont, info_dict):
-        if lisn_llist is None:
+        if lisn_llist is LNone:
             return _follow_cont(lisn_llist, seq_cont)
         else:
             return False
@@ -360,7 +360,7 @@ class PosOptional(PosMatcher):
             elif self.inherit_group and sub_dict:
                 info_dict.update(sub_dict)
 
-        if lisn_llist is None:
+        if lisn_llist is LNone:
             set_group(None)
             return _follow_cont(lisn_llist, seq_cont)
         else:
@@ -382,7 +382,7 @@ class PosKleeneStar(PosMatcher):
 
     def _match_pos(self, lisn_llist, seq_cont, info_dict):
         if self.group_name and self.group_name not in info_dict:
-            info_dict[self.group_name] = None 
+            info_dict[self.group_name] = LNone 
             
         submat = self.submat
         sub_dict = {}
@@ -403,7 +403,7 @@ class PosKleenePlus(PosMatcher):
 
     def _match_pos(self, lisn_llist, seq_cont, info_dict):
         if self.group_name and self.group_name not in info_dict:
-            info_dict[self.group_name] = None 
+            info_dict[self.group_name] = LNone 
             
         submat = self.submat
         sub_dict = {}

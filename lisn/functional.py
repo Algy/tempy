@@ -3,6 +3,15 @@ from functools import wraps
 # LISP-style list (llist)
 #
 
+class _LNoneProto:
+    def __repr__(self):
+        return "LNone"
+    def __str__(self):
+        return "LNone"
+
+LNone = _LNoneProto()
+
+
 def cons(hd, tl):
     '''
     lisp-style pair cell
@@ -11,26 +20,26 @@ def cons(hd, tl):
 
 
 def list_to_llist(lst):
-    result = None
+    result = LNone
     for idx in range(len(lst) - 1, -1, -1):
         result = cons(lst[idx], result)
     return result
 
 def car(pair):
-    if pair is None:
-        raise TypeError("Cannot car None")
+    if pair is LNone:
+        raise TypeError("Cannot car LNone")
     else:
         return pair[0]
 def cdr(pair):
-    if pair is None:
-        raise TypeError("Cannot cdr None")
+    if pair is LNone:
+        raise TypeError("Cannot cdr LNone")
     else:
         return pair[1]
 
 def llist_to_list(llst):
     result = []
     pair = llst
-    while pair is not None:
+    while pair is not LNone:
         result.append(car(pair))
         pair = cdr(pair)
 
@@ -41,15 +50,15 @@ def llist(*args):
 
 
 def llmap(fun, llst):
-    if llst is None:
-        return None
+    if llst is LNone:
+        return LNone
     else:
         return cons(fun(car(llst)),
                     llmap(fun, cdr(llst)))
 
 
 def llist_to_stream(llst):
-    if llst is None:
+    if llst is LNone:
         return null_stream
     else:
         return make_stream(car(llst))(lambda: llist_to_stream(cdr(llst)))
