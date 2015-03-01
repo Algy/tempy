@@ -32,13 +32,13 @@ syn match constNumber '\d\+\.'
 syn match constNumber '\d\+'
 
 " Imported from python syntax script
-syn region constStringLiteral start=+'+ skip=+\\\\\|\\'\|\\$+ excludenl end=+'+ end=+$+ 
-syn region constStringLiteral start=+"+ skip=+\\\\\|\\"\|\\$+ excludenl end=+"+ end=+$+
+syn region constStringLiteral start=+'+ skip=+\\\\\|\\'+  end=+'+
+syn region constStringLiteral start=+"+ skip=+\\\\\|\\"+  end=+"+
 syn region constStringLiteral start=+"""+ end=+"""+ 
 syn region constStringLiteral start=+'''+ end=+'''+
 
-syn region constStringLiteralInPar start=+'+ skip=+\\\\\|\\'\|\\$+ excludenl end=+'+ end=+$+ contained
-syn region constStringLiteralInPar start=+"+ skip=+\\\\\|\\"\|\\$+ excludenl end=+"+ end=+$+ contained
+syn region constStringLiteralInPar start=+'+ skip=+\\\\\|\\'+ end=+'+ contained
+syn region constStringLiteralInPar start=+"+ skip=+\\\\\|\\"+  end=+"+ contained
 syn region constStringLiteralInPar start=+"""+ end=+"""+  contained
 syn region constStringLiteralInPar start=+'''+ end=+'''+ contained
 
