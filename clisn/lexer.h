@@ -13,6 +13,7 @@
 #define LEXERR_BAD_STREAM 7
 #define LEXERR_MIXED_SPACES_AND_TABS 8
 #define LEXERR_EOF_IN_STRING 9
+#define LEXERR_INVALID_HEX_ESCAPE 10
 
 typedef struct Lexer Lexer;
 

@@ -28,10 +28,9 @@ int main() {
         if(lexres->error_occurred) {
             printf("ERROR! error code=>%d\nerror msg=>%s\n", lexerr.code, lexerr.msg);
             printf("(%d, %d)-(%d, %d)\n", lexres->sline, lexres->scol, lexres->sline, lexres->ecol - 1);
+            Lexer_remove_token(lexres);
             break;
-        } else if(lexres->token == 0) {
-            break;
-        } else {
+        } else { 
             switch(token) {
                 case 0:
                     text = "<<EOF>>";
@@ -46,8 +45,8 @@ int main() {
                     text = "(NEWLINE)";
                     break;
             }
-            printf("%d\t%s\n", token, text);
         }
+        printf("%d\t%s\n", token, text);
         Lexer_remove_token(lexres);
     }
     fclose(f);
