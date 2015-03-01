@@ -538,7 +538,7 @@ static PyObject* str2lisn(PyObject *self, PyObject* args) {
     }
     ast = parse_bytes(source, source_size, &err);
 
-    if(err.error_occured) {
+    if(err.error_occurred) {
         PyObject *err_tuple;
 
         err_tuple = Py_BuildValue("sN",
@@ -579,7 +579,7 @@ static PyObject* file2lisn(PyObject *self, PyObject* args) {
     ast = parse_file(fp, &err);
     fclose(fp);
 
-    if(err.error_occured) {
+    if(err.error_occurred) {
         PyObject *err_tuple;
 
         err_tuple = Py_BuildValue("sN",

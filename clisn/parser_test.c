@@ -13,7 +13,7 @@ int main() {
 
 #ifdef USE_FILE
     ast = parse_file(fp, &err);
-    if(err.error_occured) {
+    if(err.error_occurred) {
         printf("ERROR!\n");
         printf("%s\n", err.err_msg);
     } else {
@@ -33,7 +33,7 @@ int main() {
     fread(source, 1, len, fp);
 
     ast = parse_bytes(source, len, &err);
-    if(err.error_occured) {
+    if(err.error_occurred) {
         printf("ERROR!\n");
         printf("line:%d-%d\n", err.sline, err.eline);
         printf("col:%d-%d\n", err.scol, err.ecol-1);

@@ -85,11 +85,11 @@
 }
 
 typedef struct {
-    int error_occured;
+    int error_occurred;
     char err_msg[PARSE_MAX_ERR_MSG_CNT];
     int err_code;
 
-    /* this field may not be NULL even if error occured. In that case, user should release it manually. */
+    /* this field may not be NULL even if error occurred. In that case, user should release it manually. */
     ASTHD *result_ast;
 } ParseResult;
 

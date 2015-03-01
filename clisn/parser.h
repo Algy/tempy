@@ -4,7 +4,7 @@
 
 #define MAX_LEX_PARSE_ERROR_MSG 1024
 typedef struct {
-    int error_occured;
+    int error_occurred;
     int is_lexerr;
     int err_code;
     char err_msg[MAX_LEX_PARSE_ERROR_MSG];

@@ -4,7 +4,7 @@
 
 int main() {
     FILE *f;
-    Lexer lexer;
+    Lexer *lexer;
     LexToken *lexres;
     LexError lexerr;
 
@@ -14,14 +14,18 @@ int main() {
     lst_cnt = 0;
 
     f = fopen("lextest.lidl", "r");
-    init_lexer_with_file(&lexer, 0, f);
+    lexer = Lexer_init_with_file(f);
     while(1) {
         int token;
         char* text;
-        lexres = lexer_lex(&lexer, &lexerr);
+        lexres = Lexer_lex(lexer, &lexerr);
+        if (!lexres) {
+            printf("EOF\n");
+            break;
+        }
         token = lexres->token;
         text = lexres->text;
-        if(lexres->error_occured) {
+        if(lexres->error_occurred) {
             printf("ERROR! error code=>%d\nerror msg=>%s\n", lexerr.code, lexerr.msg);
             printf("(%d, %d)-(%d, %d)\n", lexres->sline, lexres->scol, lexres->sline, lexres->ecol - 1);
             break;
@@ -44,9 +48,9 @@ int main() {
             }
             printf("%d\t%s\n", token, text);
         }
-        lexer_remove_token(lexres);
+        Lexer_remove_token(lexres);
     }
     fclose(f);
-    remove_lexer(&lexer);
+    Lexer_remove(lexer);
     return 0;
 }

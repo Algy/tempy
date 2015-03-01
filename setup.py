@@ -10,7 +10,7 @@ setup(name="LISN",
       author_email="a9413miky@gmail.com",
       packages=["lisn", "tempy"],
       ext_modules=[Extension("clisn",
-                             sources=["clisn/ast.c", "clisn/lex.yy.c",
+                             sources=["clisn/ast.c", "clisn/lexer.c",
                                       "clisn/ast-make.c", "clisn/parser.c", 
                                       "clisn/astmisc.c",
                                       "clisnmod.c"])])

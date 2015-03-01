@@ -66,19 +66,19 @@ static ASTHD* do_parse(Lexer* lexer, LexParseError *err_out) {
     gettimeofday(&st, NULL);
 #endif 
 
-    err_out->error_occured = 0;
+    err_out->error_occurred = 0;
 
     parser = LEMONParseAlloc(malloc);
     init_parse_result(&parseres);
 
     success = 1;
     do {
-        lextok = lexer_lex(lexer, &lexerr);
+        lextok = Lexer_lex(lexer, &lexerr);
         if(!lextok) { // EOF
             token = 0;
             text = NULL;
-            tok_sline = tok_eline = lexer_current_line(lexer);
-            tok_scol = tok_ecol = lexer_current_col(lexer);
+            tok_sline = tok_eline = Lexer_current_line(lexer);
+            tok_scol = tok_ecol = Lexer_current_col(lexer);
 #ifdef _DBG_VERBOSE
             DBG_LOG("feeding(EOF):<<EOF>>\n");
 #endif
@@ -98,8 +98,8 @@ static ASTHD* do_parse(Lexer* lexer, LexParseError *err_out) {
                      text);
 #endif
         }
-        if(lextok && lextok->error_occured) {
-            err_out->error_occured = 1;
+        if(lextok && lextok->error_occurred) {
+            err_out->error_occurred = 1;
             err_out->is_lexerr = 1;
             err_out->err_code = lexerr.code;
             err_out->sline = tok_sline;
@@ -112,12 +112,12 @@ static ASTHD* do_parse(Lexer* lexer, LexParseError *err_out) {
             // Parser is supposed to free tokens which are fed to itself. 
             // But, here is not the case, freeing lextok is our duty here
             // because the token is not fed to parser yet.
-            lexer_remove_token(lextok); 
+            Lexer_remove_token(lextok); 
             break;
         }
         LEMONParse(parser, token, lextok, &parseres);
-        if(parseres.error_occured) {
-            err_out->error_occured = 1;
+        if(parseres.error_occurred) {
+            err_out->error_occurred = 1;
             err_out->is_lexerr = 0;
             err_out->err_code = parseres.err_code;
             err_out->sline = tok_sline;
@@ -149,24 +149,24 @@ static ASTHD* do_parse(Lexer* lexer, LexParseError *err_out) {
 }
 
 ASTHD* parse_file(FILE *f, LexParseError *err_out) {
-    Lexer lexer;
+    Lexer *lexer;
     ASTHD *ret;
 
-    init_lexer_with_file(&lexer, 0, f);
-    ret = do_parse(&lexer, err_out);
-    remove_lexer(&lexer);
+    lexer = Lexer_init_with_file(f);
+    ret = do_parse(lexer, err_out);
+    Lexer_remove(lexer);
 
     return ret;
 }
 
 
 ASTHD* parse_bytes(const char *bytes, int len, LexParseError *err_out) {
-    Lexer lexer;
+    Lexer *lexer;
     ASTHD *ret;
 
-    init_lexer_with_bytes(&lexer, 0, bytes, len);
-    ret = do_parse(&lexer, err_out);
-    remove_lexer(&lexer);
+    lexer = Lexer_init_with_bytes(bytes, len);
+    ret = do_parse(lexer, err_out);
+    Lexer_remove(lexer);
 
     return ret;
 }

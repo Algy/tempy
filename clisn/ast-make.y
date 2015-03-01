@@ -10,7 +10,7 @@
     # define NULL ((void *) 0)
     #endif
 
-    #define RM_TOKEN(x) lexer_remove_token(x)
+    #define RM_TOKEN(x) Lexer_remove_token(x)
 
 }
 
@@ -574,20 +574,20 @@ arguments(A) ::= argument(B) COMMA arguments(C). {
 
 
 /* context sensitive filter */
-vert_xexpr(A) ::= small_expr(B) COLUMN_NEWLINE stub(C). {
+vert_xexpr(A) ::= small_expr(B) COLUMN_NEWLINE NEWLINE stub(C). {
     ASTLoc loc;
     MERGE_ASTLOC(loc, B->loc, C->loc);
     A = astmisc_vert_lookahead(B, C, NULL);
     A->loc = loc;
 }
 
-vert_xexpr(A) ::= small_expr(B) GT_NEWLINE arg_stub(C). {
+vert_xexpr(A) ::= small_expr(B) GT_NEWLINE NEWLINE arg_stub(C). {
     ASTLoc loc;
     MERGE_ASTLOC(loc, B->loc, C.loc);
     A = astmisc_vert_lookahead(B, NULL, &C);
     A->loc = loc;
 }
-vert_xexpr(A) ::= small_expr(B) GT_NEWLINE arg_stub(C) DMINUS_NEWLINE stub(D). {
+vert_xexpr(A) ::= small_expr(B) GT_NEWLINE NEWLINE arg_stub(C) DMINUS_NEWLINE NEWLINE stub(D). {
     ASTLoc loc;
     MERGE_ASTLOC(loc, B->loc, D->loc);
     A = astmisc_vert_lookahead(B, D, &C);

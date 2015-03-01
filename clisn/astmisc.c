@@ -2,13 +2,13 @@
 #include <assert.h>
 #include "astmisc.h"
 void init_parse_result(ParseResult *pres) { 
-    pres->error_occured = 0;
+    pres->error_occurred = 0;
     pres->err_msg[0] = 0;
     pres->result_ast = NULL;
 }
 
 void pres_set_error(ParseResult *pres, int err_code, const char *err_msg) {
-    pres->error_occured = 1;
+    pres->error_occurred = 1;
     pres->err_code = err_code;
     strncpy(pres->err_msg, err_msg, PARSE_MAX_ERR_MSG_CNT - 1);
 }
