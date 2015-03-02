@@ -224,15 +224,15 @@ class Tag:
     def __str__(self):
         return self.emit_html()
 
-    def emit_html(self, indent=2, acc_indent=0):
+    def _emit_html(self, push, indent, acc_indent):
         sub_tags_len = len(self.sub_tags)
         tag_name = self.tag_name
         indent_space = " " * acc_indent
         
-        res = ""
         if self.tag_name == 'html':
-            res += indent_space + "<!doctype html>\n"
-        res += indent_space + "<%s"%tag_name
+            push(indent_space); push("<!doctype html>\n")
+        push(indent_space); push("<"); push(tag_name)
+
         if self.attr_dict:
             for (k, v) in self.attr_dict.items():
                 if isinstance(v, bool):
@@ -240,22 +240,26 @@ class Tag:
                 else:
                     value_str = str(v)
                 value_str = _escape_attr_value(value_str)
-                res += " %s=\"%s\""%(str(k), value_str)
-
-
+                push(" ");push(str(k));push("=\"");push(value_str);push("\"")
         if sub_tags_len > 0:
-            res += ">\n"
+            push(">\n")
             for tag_node in self.sub_tags:
                 if isinstance(tag_node, basestring):
-                    res += indent_space + " "*indent +  _escape_string(tag_node) + "\n"
+                    push(indent_space); push(" "*indent); push(_escape_string(tag_node));push("\n")
+                elif isinstance(tag_node, Tag):
+                    tag_node._emit_html(push, indent, acc_indent + indent)
                 else:
-                    res += tag_node.emit_html(indent, acc_indent + indent)
-            res += indent_space + "</%s>\n"%tag_name
+                    push(tag_node.emit_html(indent, acc_indent + indent))
+            push(indent_space); push("</"); push(tag_name); push(">"); push("\n")
         elif self.void_tag:
-            res += " />\n"
+            push(" />")
         else:
-            res += "></%s>\n"%tag_name
-        return res
+            push("></"); push(tag_name); push(">\n")
+
+    def emit_html(self, indent=2, acc_indent=0):
+        acc_str_list = []
+        self._emit_html(acc_str_list.append, indent, acc_indent)
+        return "".join(acc_str_list)
 
 class _TagPoolSig:
     def __getattr__(self, tag_name):
