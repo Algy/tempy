@@ -6,6 +6,25 @@
 #include "lexer.h"
 #include "ast-make.h"
 
+static inline void format_char(const char ch, char *dest) {
+    if(ch == '\n' || (ch >= ' ' && ch <= '~')) {
+        dest[0] = ch;
+        dest[1] = 0;
+        dest[2] = 0;
+        dest[3] = 0;
+        dest[4] = 0;
+    } else {
+        int h, l;
+        h = (unsigned char)ch / 16;
+        l = (unsigned char)ch % 16;
+        dest[0] = '\\';
+        dest[1] = 'x';
+        dest[2] = (h >= 10)? (h - 10) + 'a': h + '0';
+        dest[3] = (l >= 10)? (l - 10) + 'a': l + '0';
+        dest[4] = 0;
+    }
+}
+
 typedef struct {
     int is_file; // whether source is file or string
     union {
@@ -66,7 +85,8 @@ static inline void Stream_start_record(Stream* stream) {
 
     stream->is_recording = 1;
     stream->recording_size = INITIAL_RECORDING_BUFFER_SIZE;
-    stream->recording_buf = calloc(stream->recording_size, sizeof(char));
+    stream->recording_buf = (char *)malloc(stream->recording_size * sizeof(char));
+    stream->recording_buf[0] = 0;
     stream->recording_len = 0;
 }
 
@@ -114,7 +134,7 @@ static inline void Stream_replace_record(Stream* stream, int pop_cnt, char* push
             while (stream->recording_len + push_strlen + 1 >= stream->recording_size) {
                 stream->recording_size *= 2;
             }
-            stream->recording_buf = realloc(stream->recording_buf, sizeof(char) * stream->recording_size);
+            stream->recording_buf = (char *)realloc(stream->recording_buf, sizeof(char) * stream->recording_size);
         }
         char *p = stream->recording_buf;
         int i;
@@ -154,10 +174,11 @@ static inline int Stream_pop(Stream* stream) {
     if (stream->is_recording) {
         if (stream->recording_len + 1 >= stream->recording_size) {
             stream->recording_size *= 2;
-            stream->recording_buf = realloc(stream->recording_buf, sizeof(char) * stream->recording_size);
+            stream->recording_buf = (char *)realloc(stream->recording_buf, sizeof(char) * stream->recording_size);
         }
-        stream->recording_buf[stream->recording_len++] = (char)result;
-        stream->recording_buf[stream->recording_len] = 0;
+        stream->recording_buf[stream->recording_len] = (char)result;
+        stream->recording_buf[stream->recording_len + 1] = 0;
+        stream->recording_len++;
     }
     return result;
 }
@@ -287,20 +308,6 @@ static void flush_ind_stack(Lexer *lexer) {
 }
 
 
-static inline void format_char(const char ch, char *dest) {
-    if(ch == '\n' || (ch >= ' ' && ch <= '~')) {
-        dest[0] = ch;
-        dest[1] = 0;
-    } else {
-        int h, l;
-        h = (unsigned char)ch / 16;
-        l = (unsigned char)ch % 16;
-        dest[0] = '\\';
-        dest[1] = (h >= 10)? (h - 10) + 'a': h + '0';
-        dest[2] = (l >= 10)? (l - 10) + 'a': l + '0';
-        dest[3] = 0;
-    }
-}
 
 #define TEST_ERROR(c) {\
     if ((c) == CHAR_ERROR) { \
@@ -724,7 +731,7 @@ static inline int lex_once(Lexer *lexer) {
                     }
                     token = NAME;
                 } else {
-                    char fmt[4];
+                    char fmt[5];
                     char msg[128];
                     format_char(c, fmt);
                     snprintf(msg, 128, "Invalid character: '%s' [line %d, col %d]", fmt, lexer->stream.curline, lexer->stream.curcol - 1);
