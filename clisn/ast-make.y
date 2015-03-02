@@ -126,13 +126,19 @@ expr(A) ::= normal_expr(B). {
  *
  */
 expr(A) ::= small_expr(B) ASSIGN normal_expr(C). {
+    ASTLoc lloc, rloc;
+    lloc = B->loc;
+    rloc = C->loc;
     A = astmisc_make_assign(assign_normal, B,  C, parser_result);
-    TRACK_NN(A, B, C);
+    MERGE_ASTLOC(A->loc, lloc, rloc);
 }
 /* a := 1 */
 expr(A) ::= small_expr(B) DEFASSIGN normal_expr(C). {
+    ASTLoc lloc, rloc;
+    lloc = B->loc;
+    rloc = C->loc;
     A = astmisc_make_assign(assign_def, B,  C, parser_result);
-    TRACK_NN(A, B, C);
+    MERGE_ASTLOC(A->loc, lloc, rloc);
 }
 
 /* INTERMEDIATE */
