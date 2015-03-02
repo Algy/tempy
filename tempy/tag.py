@@ -213,7 +213,7 @@ class Tag:
         self.sub_tags = flatten_tags(sub_tags)
         self.void_tag = tag_name in _VOID_TAG_SET
         if self.void_tag and len(sub_tags) > 0:
-            raise ValueError("{0} is void tag, having sub tags though".format(tag_name))
+            raise ValueError("{0} is a void element, but has sub-elements".format(tag_name))
 
     def __repr__(self):
         if len(self.sub_tags) == 0:
@@ -242,17 +242,19 @@ class Tag:
                 value_str = _escape_attr_value(value_str)
                 res += " %s=\"%s\""%(str(k), value_str)
 
-        if sub_tags_len == 0 and not self.void_tag:
-            res += " /"
-        res += ">\n"
 
         if sub_tags_len > 0:
+            res += ">\n"
             for tag_node in self.sub_tags:
                 if isinstance(tag_node, basestring):
                     res += indent_space + " "*indent +  _escape_string(tag_node) + "\n"
                 else:
                     res += tag_node.emit_html(indent, acc_indent + indent)
             res += indent_space + "</%s>\n"%tag_name
+        elif self.void_tag:
+            res += " />\n"
+        else:
+            res += "></%s>\n"%tag_name
         return res
 
 class _TagPoolSig:
