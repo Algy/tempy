@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 #include "lexer.h"
 #include "ast-make.h"
 
@@ -46,7 +47,7 @@ int main() {
                     break;
             }
         }
-        printf("%d\t%s\n", token, text);
+        printf("%d\t %s (%d)\n", token, text, (int)strlen(text));
         Lexer_remove_token(lexres);
     }
     fclose(f);
