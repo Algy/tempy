@@ -119,8 +119,12 @@ _VOID_TAG_SET = set(HTML_VOID_TAGS)
 
 
 def _escape_attr_value(val):
-    # TODO
-    return val
+    return val.replace("&", "&amp;")\
+              .replace("<", "&lt;")\
+              .replace(">", "&gt;")\
+              .replace("\'", "&#39;")\
+              .replace("\"", "&#34;")
+
 
 def _is_whitespace(s): 
     return s == " " or s == "\t" or s == "\n"
