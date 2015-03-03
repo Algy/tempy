@@ -3362,7 +3362,8 @@ def _raise_formated_syntax_error(err, filename):
         raise TempySyntaxError(err.args)
     else:
         locinfo = err.args[1]
-        errmsg = "syntax error in \"%s\" [line %d-%d, col %d-%d]"%(
+        errmsg = "%s in \"%s\" [line %d-%d, col %d-%d]"%(
+                err.args[0],
                 filename or "",
                 locinfo["sline"],
                 locinfo["eline"],
