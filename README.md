@@ -10,7 +10,6 @@ In the root of project directory, type
 ```bash
 python setup.py install
 ```
-GNU flex is required to compile internal parser used in tempy.
 
 Basic example
 ==
@@ -249,8 +248,7 @@ Currently, source codes consist of two part, parser written in C and its wrapper
 
 Dependency
 --
-In compilation of C sources, it depends on GNU flex and Lemon parser. Source codes of the latter are provided inside this repo. So GNU flex is only an external dependency.
-
+In compilation of C sources, it only depends on Lemon parser, which is provided inside the repo. No need to install other library beforehand.
 
 Python wrapper
 --
