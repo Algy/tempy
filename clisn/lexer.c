@@ -307,6 +307,115 @@ static void flush_ind_stack(Lexer *lexer) {
     }
 }
 
+static int consume_string (Lexer *lexer, char c, int is_longstring) {
+    // Stream_peek(&lexer->stream) != c && 
+    int quot_cnt = 0;
+    while (Stream_peek(&lexer->stream) != CHAR_EOF) {
+        int x = Stream_pop(&lexer->stream);
+        if (x == c) {
+            quot_cnt++;
+        } else {
+            quot_cnt = 0;
+        }
+        if ((is_longstring && quot_cnt >= 3) || (!is_longstring && quot_cnt >= 1))
+            break;
+        if (x == '\\') {
+            // accept backslash-escaping chars
+            int after_backslash = Stream_peek(&lexer->stream);
+            switch (after_backslash) {
+                case '\\':
+                    Stream_pop(&lexer->stream);
+                    Stream_replace_record(&lexer->stream, 1, NULL, 0);
+                    break;
+                case '\'':
+                    Stream_pop(&lexer->stream);
+                    Stream_replace_record(&lexer->stream, 2, "\'", 1);
+                    break;
+                case '\"':
+                    Stream_pop(&lexer->stream);
+                    Stream_replace_record(&lexer->stream, 2, "\"", 1);
+                    break;
+                case 'a':
+                    Stream_pop(&lexer->stream);
+                    Stream_replace_record(&lexer->stream, 2, "\a", 1);
+                    break;
+                case 'b':
+                    Stream_pop(&lexer->stream);
+                    Stream_replace_record(&lexer->stream, 2, "\b", 1);
+                    break;
+                case 'f':
+                    Stream_pop(&lexer->stream);
+                    Stream_replace_record(&lexer->stream, 2, "\f", 1);
+                    break;
+                case 'n':
+                    Stream_pop(&lexer->stream);
+                    Stream_replace_record(&lexer->stream, 2, "\n", 1);
+                    break;
+                case 'r':
+                    Stream_pop(&lexer->stream);
+                    Stream_replace_record(&lexer->stream, 2, "\r", 1);
+                    break;
+                case 't':
+                    Stream_pop(&lexer->stream);
+                    Stream_replace_record(&lexer->stream, 2, "\t", 1);
+                    break;
+                case 'v':
+                    Stream_pop(&lexer->stream);
+                    Stream_replace_record(&lexer->stream, 2, "\v", 1);
+                    break;
+                case 'x':
+                    Stream_pop(&lexer->stream);
+                    {
+                        int cnt;
+                        int num = 0;
+                        for (cnt = 0; cnt < 2; cnt++) {
+                            int digit = Stream_pop(&lexer->stream);
+                            if (digit >= '0' && digit <= '9') {
+                                digit -= '0';
+                            } else if (digit >= 'a' && digit <= 'f') {
+                                digit -= 'a';
+                                digit += 10;
+                            } else if (digit >= 'A' && digit <= 'F') {
+                                digit -= 'A';
+                                digit += 10;
+                            } else {
+                                error(lexer, LEXERR_INVALID_HEX_ESCAPE, "Invalid hex escape");
+                                return 0;
+                            }
+                            num *= 16;
+                            num += digit;
+                        }
+                        char hx[1];
+                        hx[0] = (char)num;
+                        Stream_replace_record(&lexer->stream, 4, hx, 1);
+                    }
+                    break;
+                default:
+                    if (after_backslash >= '0' && after_backslash <= '7') {
+                        int cnt = 0;
+                        int oct = 0;
+                        while (cnt < 3 &&
+                               Stream_peek(&lexer->stream) >= '0' &&
+                               Stream_peek(&lexer->stream) <= '7') {
+                            oct *= 8;
+                            oct += (Stream_pop(&lexer->stream) - '0');
+                            cnt++;
+                        }
+                        char hx[1];
+                        hx[0] = (char)oct;
+                        Stream_replace_record(&lexer->stream, 1 + cnt, hx, 1);
+                    }
+            }
+        } 
+    }
+    if (Stream_peek(&lexer->stream) == CHAR_EOF) {
+        error(lexer, 
+              LEXERR_EOF_IN_STRING,
+              "encountered EOF while reading string literal");
+        return 0;
+    }
+    return 1;
+}
 
 
 #define TEST_ERROR(c) {\
@@ -608,108 +717,22 @@ static inline int lex_once(Lexer *lexer) {
                         token = FLOAT;
                     }
                 } else if (c == '\'' || c == '\"') {
-                    while (Stream_peek(&lexer->stream) != c && 
-                           Stream_peek(&lexer->stream) != CHAR_EOF) {
-                        int x = Stream_pop(&lexer->stream);
-                        if (x == '\\') {
-                            // accept backslash-escaping chars
-                            int after_backslash = Stream_peek(&lexer->stream);
-                            switch (after_backslash) {
-                                case '\\':
-                                    Stream_pop(&lexer->stream);
-                                    Stream_replace_record(&lexer->stream, 1, NULL, 0);
-                                    break;
-                                case '\'':
-                                    Stream_pop(&lexer->stream);
-                                    Stream_replace_record(&lexer->stream, 2, "\'", 1);
-                                    break;
-                                case '\"':
-                                    Stream_pop(&lexer->stream);
-                                    Stream_replace_record(&lexer->stream, 2, "\"", 1);
-                                    break;
-                                case 'a':
-                                    Stream_pop(&lexer->stream);
-                                    Stream_replace_record(&lexer->stream, 2, "\a", 1);
-                                    break;
-                                case 'b':
-                                    Stream_pop(&lexer->stream);
-                                    Stream_replace_record(&lexer->stream, 2, "\b", 1);
-                                    break;
-                                case 'f':
-                                    Stream_pop(&lexer->stream);
-                                    Stream_replace_record(&lexer->stream, 2, "\f", 1);
-                                    break;
-                                case 'n':
-                                    Stream_pop(&lexer->stream);
-                                    Stream_replace_record(&lexer->stream, 2, "\n", 1);
-                                    break;
-                                case 'r':
-                                    Stream_pop(&lexer->stream);
-                                    Stream_replace_record(&lexer->stream, 2, "\r", 1);
-                                    break;
-                                case 't':
-                                    Stream_pop(&lexer->stream);
-                                    Stream_replace_record(&lexer->stream, 2, "\t", 1);
-                                    break;
-                                case 'v':
-                                    Stream_pop(&lexer->stream);
-                                    Stream_replace_record(&lexer->stream, 2, "\v", 1);
-                                    break;
-                                case 'x':
-                                    Stream_pop(&lexer->stream);
-                                    {
-                                        int cnt;
-                                        int num = 0;
-                                        for (cnt = 0; cnt < 2; cnt++) {
-                                            int digit = Stream_pop(&lexer->stream);
-                                            if (digit >= '0' && digit <= '9') {
-                                                digit -= '0';
-                                            } else if (digit >= 'a' && digit <= 'f') {
-                                                digit -= 'a';
-                                                digit += 10;
-                                            } else if (digit >= 'A' && digit <= 'F') {
-                                                digit -= 'A';
-                                                digit += 10;
-                                            } else {
-                                                error(lexer, LEXERR_INVALID_HEX_ESCAPE, "Invalid hex escape");
-                                                return TOKEN_ERROR;
-                                            }
-                                            num *= 16;
-                                            num += digit;
-                                        }
-                                        char hx[1];
-                                        hx[0] = (char)num;
-                                        Stream_replace_record(&lexer->stream, 4, hx, 1);
-                                    }
-                                    break;
-                                default:
-                                    if (after_backslash >= '0' && after_backslash <= '7') {
-                                        int cnt = 0;
-                                        int oct = 0;
-                                        while (cnt < 3 &&
-                                               Stream_peek(&lexer->stream) >= '0' &&
-                                               Stream_peek(&lexer->stream) <= '7') {
-                                            oct *= 8;
-                                            oct += (Stream_pop(&lexer->stream) - '0');
-                                            cnt++;
-                                        }
-                                        char hx[1];
-                                        hx[0] = (char)oct;
-                                        Stream_replace_record(&lexer->stream, 1 + cnt, hx, 1);
-                                    }
-                            }
-                        } 
-
+                    if (Stream_peek(&lexer->stream) == c) {
+                        Stream_pop(&lexer->stream);
+                        if (Stream_peek(&lexer->stream) == c) {
+                            Stream_pop(&lexer->stream);
+                            if (!consume_string(lexer, c, 1)) 
+                                return TOKEN_ERROR;
+                            token = LONGSTRING;
+                        } else {
+                            // "" or ''
+                            token = STRING;
+                        }
+                    }  else {
+                        if (!consume_string(lexer, c, 0))
+                            return TOKEN_ERROR;
+                        token = STRING;
                     }
-
-                    if (Stream_peek(&lexer->stream) == CHAR_EOF) {
-                        error(lexer, 
-                              LEXERR_EOF_IN_STRING,
-                              "encountered EOF while reading string literal");
-                        return TOKEN_ERROR;
-                    }
-                    Stream_pop(&lexer->stream); // consume the closing quotation mark
-                    token = STRING;
                 } else if (c == '$' ||
                            c == '@' ||
                            (c >= 'a' && c <= 'z') ||
