@@ -1422,7 +1422,7 @@ class Conclusion:
         self.error = error
         self.comment = comment
 
-    def error_occured(self):
+    def error_occurred(self):
         return self.error 
     
     def has_result(self):
@@ -1477,7 +1477,7 @@ def error_conclusion(comment=None):
 
 
 def noreturn_conclusion(conclusions):
-    if any([x.error_occured() for x in conclusions]):
+    if any([x.error_occurred() for x in conclusions]):
         return error_conclusion()
 
     # assume that result is not emmited with these conclusions
@@ -1491,7 +1491,7 @@ def noreturn_conclusion(conclusions):
 
 
 def seq_conclusion(conclusions):
-    if any([x.error_occured() for x in conclusions]):
+    if any([x.error_occurred() for x in conclusions]):
         return error_conclusion()
     stmts = []
 
@@ -1522,7 +1522,7 @@ def make_integrator(allow_None):
             elif isinstance(a, tuple):
                 return tuple(map(convert, a))
             elif isinstance(a, Conclusion):
-                if a.error_occured():
+                if a.error_occurred():
                     success_box[0] = False
                     return None
 
@@ -1593,7 +1593,7 @@ def integrate_list(comp_env, conclusions):
     used_imd_ids = []
     success = True
     for concl in conclusions:
-        if concl.error_occured():
+        if concl.error_occurred():
             success = False
         elif not concl.has_result():
             preseq_stmts += concl.preseq_stmts
@@ -2170,10 +2170,10 @@ def translate_branch(translator, lisn, premise, context):
         pred_concl = translator(pred, Premise(True), context)
         conseq_concl = translator(conseq, premise.copy(), context)
 
-        if pred_concl.error_occured():
+        if pred_concl.error_occurred():
             success = False
             cur_success = False
-        elif conseq_concl.error_occured():
+        elif conseq_concl.error_occurred():
             success = False
             cur_success = False
 
@@ -2198,7 +2198,7 @@ def translate_branch(translator, lisn, premise, context):
 
     if else_lisn:
         else_concl = translator(else_lisn, premise.copy(), context)
-        if else_concl.error_occured():
+        if else_concl.error_occurred():
             success = False
     else:
         else_concl = expr_conclusion(PyLiteral(None))
@@ -2314,7 +2314,7 @@ def ltranslate_in_app_order(translator, node_list, context):
     success = True
     for node in node_list:
         concl = translator(node, Premise(True), context)
-        if concl.error_occured():
+        if concl.error_occurred():
             success = False
             continue
         preseq_stmts.extend(concl.preseq_stmts)
@@ -2502,7 +2502,7 @@ def translate_let(translator, lisn, premise, context):
             preseq_stmts += stmtify_expr(expr, True, let_id)
 
         suite_result = translator(lisn["vert_suite"], premise.copy(), context)
-        if suite_result.error_occured():
+        if suite_result.error_occurred():
             success = False
             result_expr = None
         else:
@@ -3281,7 +3281,7 @@ def main_translate(suite, filename, config=None, extimport=None):
 
     try:
         main_concl = node_translator(suite, Premise(False), context)
-        if main_concl.error_occured():
+        if main_concl.error_occurred():
             success = False 
         else:
             def_stmts += main_concl.preseq_stmts
