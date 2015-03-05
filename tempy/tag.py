@@ -203,8 +203,8 @@ class RawString:
     def __str__(self):
         return self.emit_html()
 
-    def emit_html(self, indent=4, acc_indent=0):
-        return " "*acc_indent + "\n".join(self.s) + "\n"
+    def emit_html(self):
+        return "".join(self.s)
 
 
 class Tag:
@@ -228,14 +228,13 @@ class Tag:
     def __str__(self):
         return self.emit_html()
 
-    def _emit_html(self, push, indent, acc_indent):
+    def _emit_html(self, push):
         sub_tags_len = len(self.sub_tags)
         tag_name = self.tag_name
-        indent_space = " " * acc_indent
         
         if self.tag_name == 'html':
-            push(indent_space); push("<!doctype html>\n")
-        push(indent_space); push("<"); push(tag_name)
+            push("<!doctype html>")
+        push("<"); push(tag_name)
 
         if self.attr_dict:
             for (k, v) in self.attr_dict.items():
@@ -246,23 +245,25 @@ class Tag:
                 value_str = _escape_attr_value(value_str)
                 push(" ");push(str(k));push("=\"");push(value_str);push("\"")
         if sub_tags_len > 0:
-            push(">\n")
+            push(">")
             for tag_node in self.sub_tags:
-                if isinstance(tag_node, basestring):
-                    push(indent_space); push(" "*indent); push(_escape_string(tag_node));push("\n")
+                if tag_node is None:
+                    pass
+                elif isinstance(tag_node, basestring):
+                    push(_escape_string(tag_node))
                 elif isinstance(tag_node, Tag):
-                    tag_node._emit_html(push, indent, acc_indent + indent)
+                    tag_node._emit_html(push)
                 else:
-                    push(tag_node.emit_html(indent, acc_indent + indent))
-            push(indent_space); push("</"); push(tag_name); push(">"); push("\n")
+                    push(tag_node.emit_html())
+            push("</"); push(tag_name); push(">")
         elif self.void_tag:
             push(" />")
         else:
-            push("></"); push(tag_name); push(">\n")
+            push("></"); push(tag_name); push(">")
 
-    def emit_html(self, indent=2, acc_indent=0):
+    def emit_html(self):
         acc_str_list = []
-        self._emit_html(acc_str_list.append, indent, acc_indent)
+        self._emit_html(acc_str_list.append)
         return "".join(acc_str_list)
 
 class _TagPoolSig:
