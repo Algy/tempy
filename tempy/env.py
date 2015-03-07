@@ -116,8 +116,6 @@ class Environment:
 
 
     def _code_generation(self, tpy_path, tpyc_path, write_to_pyc=True):
-        code = compile_file(tpy_path)
-
         if self.compile_option.write_py:
             py_path = _exchange_ext(tpyc_path, "py")
             try:
@@ -125,6 +123,7 @@ class Environment:
                     f.write(pystmts_to_string(translate_file(tpy_path)))
             except IOError as err:
                 self.compile_option.log("IOError occured while writing .py file(%s): %s"%(tpyc_path, str(err)))
+        code = compile_file(tpy_path)
         if write_to_pyc:
             try:
                 _write_code(tpyc_path, code)
