@@ -83,7 +83,6 @@ static ASTHD* do_parse(Lexer* lexer, LexParseError *err_out) {
             DBG_LOG("feeding(EOF):<<EOF>>\n");
 #endif
         } else {
-            int line, col;
             token = lextok->token;
             text = lextok->text;
             tok_sline = lextok->sline;
